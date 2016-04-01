@@ -1,0 +1,68 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<topic id="0af93781-f356-4542-bc7f-2f2b0e309e86" revisionNumber="1">
+  <developerHowToDocument
+    xmlns="http://ddue.schemas.microsoft.com/authoring/2003/5"
+    xmlns:xlink="http://www.w3.org/1999/xlink">
+
+    <introduction>
+      <para>This document explains how to build SyncFrame from source.</para>
+    </introduction>
+
+    <procedure>
+      <title>Obtaining the source</title>
+      <steps class="ordered">
+        <step>
+          <content>
+            <para>To obtain the source, see the conceptual topic for the link to github.</para>
+          </content>
+        </step>
+        <step>
+          <content>
+            <para>Issue a clone request or a pull request on the source repository.</para>
+          </content>
+        </step>
+      </steps>
+    </procedure>
+
+    <procedure>
+      <title>Pre-requisites</title>
+      <steps class="ordered">
+        <step>
+          <content>
+            <para>To build, you need at least Visual Studio 2015. The managed build output is in MSIL. Debug or release configurations are supported.</para>
+          </content>
+        </step>
+
+        <step>
+          <content>
+            <para>See the related topics section below for a list of build dependencies and recommended extensions.</para>
+          </content>
+        </step>
+      </steps>
+    </procedure>
+
+    <relatedTopics>
+      <link xlink:href="d9f9e696-b1a3-44f4-b52c-b332d24264e1">SyncFrame</link>
+
+      <externalLink>
+        <linkText>EW-SHFB</linkText>
+        <linkUri>https://github.com/EWSoftware/SHFB</linkUri>
+      </externalLink>
+
+      <externalLink>
+        <linkText>NuGet Packager</linkText>
+        <linkUri>https://visualstudiogallery.msdn.microsoft.com/daf5c6db-386b-4994-bdd7-b6cd52f11b72</linkUri>
+      </externalLink>
+
+      <externalLink>
+        <linkText>GhostDoc</linkText>
+        <linkUri>http://submain.com/products/ghostdoc.aspx</linkUri>
+      </externalLink>
+
+      <externalLink>
+        <linkText>StyleCop</linkText>
+        <linkUri>https://stylecop.codeplex.com/</linkUri>
+      </externalLink>      
+    </relatedTopics>
+  </developerHowToDocument>
+</topic>

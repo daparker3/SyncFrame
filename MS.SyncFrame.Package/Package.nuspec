@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<package >
+  <metadata>
+    <id>MS.SyncFrame</id>
+    <version>1.0.0.0</version>
+    <title>MS.SyncFrame</title>
+    <authors>Dan Parker</authors>
+    <owners></owners>
+    <description>
+      SyncFrame provides a library for efficient message streaming using sync frames which are built on top of protocol buffers.
+      It provides for a one way, bidirectional request-response paradigm, and allows a configurable request intervals as well as message fragmentation.
+      For more information, please see the white-paper or API documentation.
+    </description>
+    <releaseNotes>
+    </releaseNotes>
+    <summary>
+      SyncFrame provides a library for efficient message streaming using sync frames which are built on top of protocol buffers.
+    </summary>
+    <language>en-US</language>
+    <projectUrl>https://nuget.org/packages/MS.SyncFrame</projectUrl>
+    <iconUrl>https://nuget.org/Content/Images/packageDefaultIcon-50x50.png</iconUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <licenseUrl>https://opensource.org/licenses/MS-PL</licenseUrl>
+    <copyright>Copyright (c) MS 2016</copyright>
+    <dependencies>
+        <group targetFramework="net452">
+          <dependency id="log4net" version="1.2.10" />
+          <dependency  id="Ensure.That" version="4.0.0" />
+          <dependency id="protobuf-net" version="2.0.0.668" />
+        </group>
+    </dependencies>
+    <references></references>
+    <tags></tags>
+  </metadata>
+  <files>
+    <file src="..\SyncFrameDocumentation\Help\BugBot.docx" target="content"/>
+    <file src="..\MS.SyncFrame\bin\Release\MS.SyncFrame.dll" target="lib\net452"/>
+  </files>
+</package>
