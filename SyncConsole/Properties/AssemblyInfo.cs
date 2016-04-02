@@ -5,16 +5,15 @@
 //-----------------------------------------------------------------------
 
 using System.Reflection;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 // General Information about an assembly is controlled through the following 
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
-[assembly: AssemblyTitle("MS.SyncFrame")]
-[assembly: AssemblyDescription("The SyncFrame library.")]
+[assembly: AssemblyTitle("SyncConsole")]
+[assembly: AssemblyDescription("SyncFrame console test program.")]
 [assembly: AssemblyCompany("MS")]
-[assembly: AssemblyProduct("MS.SyncFrame")]
+[assembly: AssemblyProduct("SyncConsole")]
 [assembly: AssemblyCopyright("Copyright © MS 2016")]
 [assembly: AssemblyCulture("")]
 
@@ -24,7 +23,7 @@ using System.Runtime.InteropServices;
 [assembly: ComVisible(false)]
 
 // The following GUID is for the ID of the typelib if this project is exposed to COM
-[assembly: Guid("12ff6eab-cc9b-4bec-a036-f1efef95374d")]
+[assembly: Guid("6da3661f-1794-4e93-8073-94d719b85cb2")]
 
 // Version information for an assembly consists of the following four values:
 //
@@ -38,5 +37,3 @@ using System.Runtime.InteropServices;
 // [assembly: AssemblyVersion("1.0.*")]
 [assembly: AssemblyVersion("1.0.0.0")]
 [assembly: AssemblyFileVersion("1.0.0.0")]
-[assembly: InternalsVisibleTo("MS.SyncFrame.Tests")]
-[assembly: InternalsVisibleTo("MS.SyncFrame.Explorables")]

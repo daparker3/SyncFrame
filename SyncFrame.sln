@@ -15,6 +15,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MS.SyncFrame.Package", "MS.
 		{D19132F2-B4A2-4C3B-A1CC-E5203451CA82} = {D19132F2-B4A2-4C3B-A1CC-E5203451CA82}
 	EndProjectSection
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SyncConsole", "SyncConsole\SyncConsole.csproj", "{6DA3661F-1794-4E93-8073-94D719B85CB2}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -35,6 +37,10 @@ Global
 		{C8ED9E31-7C38-4062-9A77-C13EF01089D8}.Release|Any CPU.Build.0 = Release|Any CPU
 		{0451BAEF-DF2E-4B98-8644-94EE9415E389}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{0451BAEF-DF2E-4B98-8644-94EE9415E389}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6DA3661F-1794-4E93-8073-94D719B85CB2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6DA3661F-1794-4E93-8073-94D719B85CB2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6DA3661F-1794-4E93-8073-94D719B85CB2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6DA3661F-1794-4E93-8073-94D719B85CB2}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
