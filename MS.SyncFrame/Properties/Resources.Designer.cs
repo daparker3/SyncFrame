@@ -88,6 +88,24 @@ namespace MS.SyncFrame.Properties {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to No such request..
+        /// </summary>
+        internal static string NoSuchRequest {
+            get {
+                return ResourceManager.GetString("NoSuchRequest", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Another task is already waiting for this request..
+        /// </summary>
+        internal static string RequestAlreadyInProgress {
+            get {
+                return ResourceManager.GetString("RequestAlreadyInProgress", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Too many requests in progress..
         /// </summary>
         internal static string TooManyRequests {

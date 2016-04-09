@@ -6,10 +6,11 @@
   <SelectedLanguages />
   <InheritIgnoredWords>True</InheritIgnoredWords>
   <IgnoredWords>
+    <Ignore>async</Ignore>
     <Ignore>cts</Ignore>
     <Ignore>Deserialize</Ignore>
     <Ignore>tcs</Ignore>
-    <Ignore>async</Ignore>
+    <Ignore>deserializing</Ignore>
   </IgnoredWords>
   <InheritExclusionExpressions>True</InheritExclusionExpressions>
   <InheritIgnoredFilePatterns>True</InheritIgnoredFilePatterns>

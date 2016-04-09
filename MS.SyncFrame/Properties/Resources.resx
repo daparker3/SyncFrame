@@ -126,6 +126,12 @@
   <data name="ConnectionAlreadyOpened" xml:space="preserve">
     <value>The transport connection was already opened.</value>
   </data>
+  <data name="NoSuchRequest" xml:space="preserve">
+    <value>No such request.</value>
+  </data>
+  <data name="RequestAlreadyInProgress" xml:space="preserve">
+    <value>Another task is already waiting for this request.</value>
+  </data>
   <data name="TooManyRequests" xml:space="preserve">
     <value>Too many requests in progress.</value>
   </data>

@@ -17,23 +17,23 @@ namespace MS.SyncFrame
     /// </summary>
     public class Result
     {
-        private static MethodInfo serializeMethod = typeof(Serializer).GetMethod("SerializeWithLengthPrefix");
-        private static MethodInfo deserializeMethod = typeof(Serializer).GetMethod("DeserializeWithLengthPrefix");
+        private static MethodInfo serializeMethod = typeof(Serializer).GetMethod("Serialize");
+        private static MethodInfo deserializeMethod = typeof(Serializer).GetMethod("Deserialize");
         private MessageTransport localTransport;
-        private int requestId;
+        private long requestId;
         private bool remote;
 
-        internal Result(MessageTransport localTransport, Stream s)
+        internal Result(MessageTransport localTransport, MessageHeader header, Stream s)
         {
+            Ensure.That(header, "header").IsNotNull();
             Ensure.That(s, "s").IsNotNull();
             this.localTransport = localTransport;
             this.remote = true;
-            MessageHeader header = Serializer.DeserializeWithLengthPrefix<MessageHeader>(s, PrefixStyle.Base128);
             this.requestId = header.RequestId;
             if (header.Faulted)
             {
                 MethodInfo faultDeserializer = deserializeMethod.MakeGenericMethod(header.DataType);
-                object faultObject = faultDeserializer.Invoke(null, new object[] { s, PrefixStyle.Base128 });
+                object faultObject = faultDeserializer.Invoke(null, new object[] { s });
                 Type faultObjectType = faultObject.GetType();
                 Type faultExceptionType = typeof(FaultException<>).MakeGenericType(faultObjectType);
                 ConstructorInfo faultExceptionConstructor = faultExceptionType.GetConstructor(new Type[] { faultObjectType });
@@ -41,7 +41,7 @@ namespace MS.SyncFrame
             }
         }
 
-        internal Result(MessageTransport localTransport, int requestId)
+        internal Result(MessageTransport localTransport, long requestId)
         {
             this.localTransport = localTransport;
             this.remote = false;
@@ -68,7 +68,7 @@ namespace MS.SyncFrame
         /// <value>
         /// The request identifier.
         /// </value>
-        public int RequestId
+        public long RequestId
         {
             get
             {
@@ -102,10 +102,10 @@ namespace MS.SyncFrame
                 header.DataType = value.GetType();
             }
 
-            Serializer.SerializeWithLengthPrefix(s, header, PrefixStyle.Base128);
+            Serializer.Serialize(s, header);
             if (value != null)
             {
-                Serializer.SerializeWithLengthPrefix<T>(s, value, PrefixStyle.Base128);
+                Serializer.Serialize(s, value);
             }
         }
     }

@@ -13,7 +13,7 @@ namespace MS.SyncFrame
     internal class MessageHeader
     {
         [ProtoMember(1, IsRequired = true)]
-        internal int RequestId { get; set; }
+        internal long RequestId { get; set; }
 
         [ProtoMember(2, IsRequired = true)]
         internal bool Faulted { get; set; }

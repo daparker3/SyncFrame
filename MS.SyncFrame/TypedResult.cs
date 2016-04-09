@@ -18,13 +18,13 @@ namespace MS.SyncFrame
     {
         private TResult result;
 
-        internal TypedResult(MessageTransport localTransport, Stream s)
-            : base(localTransport, s)
+        internal TypedResult(MessageTransport localTransport, MessageHeader header, Stream s)
+            : base(localTransport, header, s)
         {
-            this.result = Serializer.DeserializeWithLengthPrefix<TResult>(s, PrefixStyle.Base128);
+            this.result = Serializer.Deserialize<TResult>(s);
         }
 
-        internal TypedResult(MessageTransport localTransport, int requestId, TResult result)
+        internal TypedResult(MessageTransport localTransport, long requestId, TResult result)
             : base(localTransport, requestId)
         {
             Ensure.That(result, "result").IsNotNull();

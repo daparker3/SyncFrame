@@ -86,9 +86,10 @@ namespace MS.SyncFrame
             {
                 while (this.IsConnectionOpen)
                 {
+                    Task delayTask = Task.Delay(this.MinDelay, this.ConnectionClosedToken);
                     await this.WriteMessages();
                     await this.ReadMessages();
-                    await Task.Delay(this.MinDelay, this.ConnectionClosedToken);
+                    await delayTask;
                 }
             });
         }

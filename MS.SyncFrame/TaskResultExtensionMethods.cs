@@ -7,6 +7,7 @@
 namespace MS.SyncFrame
 {
     using System;
+    using System.Threading;
     using System.Threading.Tasks;
     using EnsureThat;
 
@@ -23,6 +24,7 @@ namespace MS.SyncFrame
         /// <param name="task">The task.</param>
         /// <param name="data">The data.</param>
         /// <returns>A <see cref="Task{Result}"/> which completes with the message when sent.</returns>
+        /// <remarks>See the <see cref="MessageTransport.SendData{TRequest}(TRequest)"/> method for a list of exceptions that can be thrown.</remarks>
         public static Task<Result> SendData<TRequest, TResponse>(this Task<TypedResult<TRequest>> task, TResponse data) 
             where TRequest : class 
             where TResponse : class
@@ -38,10 +40,24 @@ namespace MS.SyncFrame
         /// <param name="task">The task for the request.</param>
         /// <typeparam name="TResponse">The type of the response.</typeparam>
         /// <returns>A <see cref="Task{Result}"/> which completes with the specified response data.</returns>
+        /// <remarks>See the <see cref="MessageTransport.ReceiveData{TResponse}(Result, System.Threading.CancellationToken)"/> method for a list of exceptions which can be thrown.</remarks>
         public static Task<TypedResult<TResponse>> ReceiveData<TResponse>(this Task<Result> task) where TResponse : class
         {
+            return ReceiveData<TResponse>(task, CancellationToken.None);
+        }
+
+        /// <summary>
+        /// Receives the data.
+        /// </summary>
+        /// <param name="task">The task for the request.</param>
+        /// <param name="token">An optional cancellation token.</param>
+        /// <typeparam name="TResponse">The type of the response.</typeparam>
+        /// <returns>A <see cref="Task{Result}"/> which completes with the specified response data.</returns>
+        /// <remarks>See the <see cref="MessageTransport.ReceiveData{TResponse}(Result, System.Threading.CancellationToken)"/> method for a list of exceptions which can be thrown.</remarks>
+        public static Task<TypedResult<TResponse>> ReceiveData<TResponse>(this Task<Result> task, CancellationToken token) where TResponse : class
+        {
             Ensure.That(task, "task").IsNotNull();
-            return task.ContinueWith((t) => t.Result.LocalTransport.ReceiveData<TResponse>(t.Result))
+            return task.ContinueWith((t) => t.Result.LocalTransport.ReceiveData<TResponse>(t.Result, token))
                        .Unwrap();
         }
     }
