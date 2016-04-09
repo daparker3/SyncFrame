@@ -1,13 +1,13 @@
 ﻿//-----------------------------------------------------------------------
 // <copyright file="MessageClient.cs" company="MS">
-//     Copyright (c) 2016 MS.
+//     Copyright (c) 2016 MS
 // </copyright>
 //-----------------------------------------------------------------------
-
 namespace MS.SyncFrame
 {
     using System;
     using System.IO;
+    using System.Threading;
     using System.Threading.Tasks;
 
     /// <summary>
@@ -17,23 +17,16 @@ namespace MS.SyncFrame
     /// <example>
     /// The following example shows a simple message client which reads and writes random fill data.
     /// <code language="c#" title="Creating a simple MessageClient"><![CDATA[
-    /// using System;
-    /// using System.Collections.Generic;
-    /// using System.IO;
-    /// using System.Net.Sockets;
-    /// using System.Threading.Tasks;
-    /// using MS.SyncFrame;
-    /// using ProtoBuf;
-    ///
-    /// internal static class ClientServer
+    /// internal static Task CreateTransmitTask(NetworkStream clientStream, TimeSpan frameDelay, int numRequests, int requestSize)
     /// {
-    ///     internal static Task CreateTransmitTask(NetworkStream serverStream, TimeSpan frameDelay, int numRequests, int requestSize)
+    ///     return Task.Factory.StartNew(async () =>
     ///     {
-    ///         return Task.Factory.StartNew(async () =>
+    ///         Random r = new Random();
+    ///         using (CancellationTokenSource cts = new CancellationTokenSource())
+    ///         using (MessageClient client = new MessageClient(clientStream, cts.Token))
     ///         {
-    ///             Random r = new Random();
-    ///             MessageClient client = await MessageClient.CreateClientSession(serverStream);
     ///             client.MinDelay = frameDelay;
+    ///             Task sessionTask = client.Open();
     /// 
     ///             for (int i = 0; i < numRequests; ++i)
     ///             {
@@ -41,20 +34,16 @@ namespace MS.SyncFrame
     ///                 byte[] requestData = new byte[requestSize];
     ///                 r.NextBytes(requestData);
     ///                 Message requestMessage = new Message { Data = requestData };
-    ///                 Message responseMessage = client.SendData(requestMessage)
-    ///                                                 .ContinueWith((t) => client.RecieveData<Message>())
-    ///                                                 .Unwrap().Result;
+    ///                 TypedResult<Message> responseMessage = await client.SendData(requestMessage)
+    ///                                                                     .ReceiveData<Message>();
     ///             }
-    ///         });
-    ///     }
-    ///
-    ///     [ProtoContract]
-    ///     internal class Message
-    ///     {
-    ///         [ProtoMember(1)]
-    ///         internal byte[] Data { get; set; }
-    ///     }
-    /// }]]></code>
+    /// 
+    ///             cts.Cancel();
+    ///             await sessionTask;
+    ///         }
+    ///     });
+    /// }
+    /// ]]></code>
     /// </example>
     public class MessageClient : MessageTransport
     {
@@ -62,8 +51,9 @@ namespace MS.SyncFrame
         /// Initializes a new instance of the <see cref="MessageClient"/> class.
         /// </summary>
         /// <param name="clientStream">The client stream.</param>
-        private MessageClient(Stream clientStream)
-            : base(clientStream)
+        /// <param name="token">The cancellation token.</param>
+        public MessageClient(Stream clientStream, CancellationToken token)
+            : base(clientStream, token)
         {
             this.MinDelay = TimeSpan.FromMilliseconds(25);
         }
@@ -82,15 +72,25 @@ namespace MS.SyncFrame
         }
 
         /// <summary>
-        /// Creates the client session.
+        /// Opens the connection and begins listening for messages.
         /// </summary>
-        /// <param name="clientStream">The client stream.</param>
-        /// <returns>A task which when waited on, yields an active client session.</returns>
-        /// <remarks>The <paramref name="clientStream"/> parameter is assumed to have the same properties as a stream derived from a call to <see cref="System.Net.Sockets.TcpClient.GetStream"/>. You must initialize the TCP client session yourself before attempting to initialize this object.</remarks>
-        public static Task<MessageClient> CreateClientSession(Stream clientStream)
+        /// <returns>
+        /// A task which when complete indicates the transport has completed the session.
+        /// </returns>
+        /// <remarks>
+        /// This can be overridden in child classes to provide additional open behavior.
+        /// </remarks>
+        public override Task Open()
         {
-            // Yield a new message client...
-            throw new NotImplementedException();
+            return base.Open().ContinueWith(async (t) =>
+            {
+                while (this.IsConnectionOpen)
+                {
+                    await this.WriteMessages();
+                    await this.ReadMessages();
+                    await Task.Delay(this.MinDelay, this.ConnectionClosedToken);
+                }
+            });
         }
     }
 }

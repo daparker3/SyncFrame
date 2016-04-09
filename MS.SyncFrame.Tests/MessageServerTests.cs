@@ -5,6 +5,7 @@ using System.IO;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using ProtoBuf;
 
@@ -59,22 +60,29 @@ namespace MS.SyncFrame.Tests
             TimeSpan minDelay = TimeSpan.FromMilliseconds(frameDelay);
             Task listenTask = CreateTransmitTask(sessionStream, minDelay, numRequests, requestSize);
             Random r = new Random();
-            MessageServer server = MessageServer.CreateServerSession(sessionStream).Result;
-            Assert.IsTrue(server.IsConnectionOpen);
-
-            while (server.IsConnectionOpen)
+            using (CancellationTokenSource cts = new CancellationTokenSource())
+            using (MessageServer server = new MessageServer(sessionStream, cts.Token))
             {
-                Message nextMessage = server.RecieveData<Message>().Result;
-                Assert.IsNotNull(nextMessage.Data);
-                Assert.AreEqual(requestSize, nextMessage.Data.Length);
-                // Do something with the message.
-                byte[] responseData = new byte[responseSize];
-                r.NextBytes(responseData);
-                server.SendData(new Message { Data = responseData }).Wait();
-            }
+                Task sessionTask = server.Open();
+                Assert.IsTrue(server.IsConnectionOpen);
 
-            server.Close();
-            Assert.IsFalse(server.IsConnectionOpen);
+                while (server.IsConnectionOpen)
+                {
+                    Result nextMessage = server.ReceiveData<Message>()
+                        .ContinueWith((t) =>
+                        {
+                            Assert.AreEqual(requestSize, t.Result.Result.Data.Length);
+                            // Do something with the message.
+                            byte[] responseData = new byte[responseSize];
+                            r.NextBytes(responseData);
+                            return t.SendData(new Message { Data = responseData });
+                        }).Unwrap().Result;
+                }
+
+                cts.Cancel();
+                sessionTask.Wait();
+                Assert.IsFalse(server.IsConnectionOpen);
+            }
             listenTask.Wait();
         }
 
@@ -83,18 +91,25 @@ namespace MS.SyncFrame.Tests
             return Task.Factory.StartNew(async () =>
             {
                 Random r = new Random();
-                MessageClient client = await MessageClient.CreateClientSession(serverStream);
-                client.MinDelay = frameDelay;
 
-                for (int i = 0; i < numRequests; ++i)
+                using (CancellationTokenSource cts = new CancellationTokenSource())
+                using (MessageClient client = new MessageClient(serverStream, cts.Token))
                 {
-                    // Do something with the message.
-                    byte[] requestData = new byte[requestSize];
-                    r.NextBytes(requestData);
-                    Message requestMessage = new Message { Data = requestData };
-                    Message responseMessage = client.SendData(requestMessage)
-                                                    .ContinueWith((t) => client.RecieveData<Message>())
-                                                    .Unwrap().Result;
+                    client.MinDelay = frameDelay;
+                    Task sessionTask = client.Open();
+
+                    for (int i = 0; i < numRequests; ++i)
+                    {
+                        // Do something with the message.
+                        byte[] requestData = new byte[requestSize];
+                        r.NextBytes(requestData);
+                        Message requestMessage = new Message { Data = requestData };
+                        Message responseMessage = (await client.SendData(requestMessage)
+                                                        .ReceiveData<Message>()).Result;
+                    }
+
+                    cts.Cancel();
+                    await sessionTask;
                 }
             });
         }

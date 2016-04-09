@@ -68,5 +68,32 @@ namespace MS.SyncFrame.Properties {
                 return ResourceManager.GetString("ASyncFaultOccured", resourceCulture);
             }
         }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to An attempt to complete a request as if it were a two-way request was made when the request is one-way..
+        /// </summary>
+        internal static string CannotCompleteOneWayRequest {
+            get {
+                return ResourceManager.GetString("CannotCompleteOneWayRequest", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to The transport connection was already opened..
+        /// </summary>
+        internal static string ConnectionAlreadyOpened {
+            get {
+                return ResourceManager.GetString("ConnectionAlreadyOpened", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Too many requests in progress..
+        /// </summary>
+        internal static string TooManyRequests {
+            get {
+                return ResourceManager.GetString("TooManyRequests", resourceCulture);
+            }
+        }
     }
 }

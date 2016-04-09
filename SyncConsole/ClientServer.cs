@@ -1,6 +1,6 @@
 ﻿//-----------------------------------------------------------------------
 // <copyright file="ClientServer.cs" company="MS">
-//     Copyright (c) 2016 MS.
+//     Copyright (c) 2016 MS
 // </copyright>
 //-----------------------------------------------------------------------
 
@@ -10,50 +10,60 @@ namespace SyncConsole
     using System.Collections.Generic;
     using System.IO;
     using System.Net.Sockets;
+    using System.Threading;
     using System.Threading.Tasks;
     using MS.SyncFrame;
     using ProtoBuf;
 
     internal static class ClientServer
     {
-        internal static Task CreateListenTask(Stream clientStream, int responseSize)
+        internal static Task CreateListenTask(Stream serverStream, int responseSize)
         {
             return Task.Factory.StartNew(async () =>
             {
                 Random r = new Random();
-                MessageServer server = await MessageServer.CreateServerSession(clientStream);
-                await server.Listen();
-
-                while (server.IsConnectionOpen)
+                using (CancellationTokenSource cts = new CancellationTokenSource())
+                using (MessageServer server = new MessageServer(serverStream, cts.Token))
                 {
-                    byte[] responseData = new byte[responseSize];
-                    r.NextBytes(responseData);
-                    await server.RecieveData<Message>()
-                                .ContinueWith((t) => server.SendData(new Message { Data = responseData }))
-                                .Unwrap();
-                }
+                    Task sessionTask = server.Open();
 
-                await server.Close();
+                    while (server.IsConnectionOpen)
+                    {
+                        byte[] responseData = new byte[responseSize];
+                        r.NextBytes(responseData);
+                        await server.ReceiveData<Message>()
+                                    .SendData(new Message { Data = responseData });
+                    }
+
+                    cts.Cancel();
+                    await sessionTask;
+                }
             });
         }
 
-        internal static Task CreateTransmitTask(NetworkStream serverStream, TimeSpan frameDelay, int numRequests, int requestSize)
+        internal static Task CreateTransmitTask(NetworkStream clientStream, TimeSpan frameDelay, int numRequests, int requestSize)
         {
             return Task.Factory.StartNew(async () =>
             {
                 Random r = new Random();
-                MessageClient client = await MessageClient.CreateClientSession(serverStream);
-                client.MinDelay = frameDelay;
-
-                for (int i = 0; i < numRequests; ++i)
+                using (CancellationTokenSource cts = new CancellationTokenSource())
+                using (MessageClient client = new MessageClient(clientStream, cts.Token))
                 {
-                    // Do something with the message.
-                    byte[] requestData = new byte[requestSize];
-                    r.NextBytes(requestData);
-                    Message requestMessage = new Message { Data = requestData };
-                    Message responseMessage = client.SendData(requestMessage)
-                                                    .ContinueWith((t) => client.RecieveData<Message>())
-                                                    .Unwrap().Result;
+                    client.MinDelay = frameDelay;
+                    Task sessionTask = client.Open();
+
+                    for (int i = 0; i < numRequests; ++i)
+                    {
+                        // Do something with the message.
+                        byte[] requestData = new byte[requestSize];
+                        r.NextBytes(requestData);
+                        Message requestMessage = new Message { Data = requestData };
+                        TypedResult<Message> responseMessage = await client.SendData(requestMessage)
+                                                                           .ReceiveData<Message>();
+                    }
+
+                    cts.Cancel();
+                    await sessionTask;
                 }
             });
         }

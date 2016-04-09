@@ -1,6 +1,6 @@
 ﻿//-----------------------------------------------------------------------
 // <copyright file="MessageServer.cs" company="MS">
-//     Copyright (c) 2016 MS.
+//     Copyright (c) 2016 MS
 // </copyright>
 //-----------------------------------------------------------------------
 
@@ -8,6 +8,7 @@ namespace MS.SyncFrame
 {
     using System;
     using System.IO;
+    using System.Threading;
     using System.Threading.Tasks;
 
     /// <summary>
@@ -17,42 +18,30 @@ namespace MS.SyncFrame
     /// <example>
     /// The following example shows a simple message server which reads and writes random fill data.
     /// <code language="c#" title="Creating a simple MessageServer"><![CDATA[
-    /// using System;
-    /// using System.Collections.Generic;
-    /// using System.IO;
-    /// using System.Net.Sockets;
-    /// using System.Threading.Tasks;
-    /// using MS.SyncFrame;
-    /// using ProtoBuf;
-    ///
-    /// internal static class ClientServer
+    /// internal static Task CreateListenTask(Stream serverStream, int responseSize)
     /// {
-    ///     internal static Task CreateListenTask(Stream clientStream, int responseSize)
+    ///     return Task.Factory.StartNew(async () =>
     ///     {
-    ///         return Task.Factory.StartNew(async () =>
+    ///         Random r = new Random();
+    ///         using (CancellationTokenSource cts = new CancellationTokenSource())
+    ///         using (MessageServer server = new MessageServer(serverStream, cts.Token))
     ///         {
-    ///             Random r = new Random();
-    ///             MessageServer server = await MessageServer.CreateServerSession(clientStream);
-    ///             await server.Listen();
+    ///             Task sessionTask = server.Open();
     /// 
     ///             while (server.IsConnectionOpen)
     ///             {
-    ///                 await server.RecieveData<Message>()
-    ///                             .ContinueWith((t) => server.SendData(new Message { Data = responseData }))
-    ///                             .Unwrap();
+    ///                 byte[] responseData = new byte[responseSize];
+    ///                 r.NextBytes(responseData);
+    ///                 await server.ReceiveData<Message>()
+    ///                             .SendData(new Message { Data = responseData });
     ///             }
     /// 
-    ///             await server.Close();
-    ///         });
-    ///     }
-    ///     
-    ///     [ProtoContract]
-    ///     internal class Message
-    ///     {
-    ///         [ProtoMember(1)]
-    ///         internal byte[] Data { get; set; }
-    ///     }
-    /// }]]></code>
+    ///             cts.Cancel();
+    ///             await sessionTask;
+    ///         }
+    ///     });
+    /// }
+    /// ]]></code>
     /// </example>
     public class MessageServer : MessageTransport
     {
@@ -60,30 +49,31 @@ namespace MS.SyncFrame
         /// Initializes a new instance of the <see cref="MessageServer"/> class.
         /// </summary>
         /// <param name="serverStream">The server stream.</param>
-        private MessageServer(Stream serverStream)
-            : base(serverStream)
+        /// <param name="token">The cancellation token.</param>
+        public MessageServer(Stream serverStream, CancellationToken token)
+            : base(serverStream, token)
         {
         }
 
         /// <summary>
-        /// Creates the server session.
+        /// Opens the connection and begins listening for messages.
         /// </summary>
-        /// <param name="serverStream">The client stream.</param>
-        /// <returns>A task which when waited on, yields an active server session.</returns>
-        /// <remarks>The <paramref name="serverStream"/> parameter is assumed to have the same properties as a stream derived from a call to <see cref="System.Net.Sockets.TcpClient.GetStream"/>. You must initialize the TCP server session yourself before attempting to initialize this object.</remarks>
-        public static Task<MessageServer> CreateServerSession(Stream serverStream)
+        /// <returns>
+        /// A task which when complete indicates the transport has completed the session.
+        /// </returns>
+        /// <remarks>
+        /// This can be overridden in child classes to provide additional open behavior.
+        /// </remarks>
+        public override Task Open()
         {
-            // Yield a new message client...
-            throw new NotImplementedException();
-        }
-
-        /// <summary>
-        /// Starts listening for messages.
-        /// </summary>
-        /// <returns>A task which when complete indicates the server has started listening for messages.</returns>
-        public Task Listen()
-        {
-            throw new NotImplementedException();
+            return base.Open().ContinueWith(async (t) =>
+            {
+                while (this.IsConnectionOpen)
+                {
+                    await this.ReadMessages();
+                    await this.WriteMessages();
+                }
+            });
         }
     }
 }

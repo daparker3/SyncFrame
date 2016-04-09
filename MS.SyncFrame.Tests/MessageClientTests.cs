@@ -5,6 +5,7 @@ using System.IO;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using ProtoBuf;
 
@@ -55,31 +56,37 @@ namespace MS.SyncFrame.Tests
             int responseSize = int.Parse((string)TestContext.Properties["ResponseSize"]);
             Task listenTask = CreateListenTask(sessionStream, responseSize);
             Random r = new Random();
-            MessageClient client = MessageClient.CreateClientSession(sessionStream).Result;
-            Assert.IsTrue(client.IsConnectionOpen);
-
-            int frameDelay = int.Parse((string)TestContext.Properties["FrameDelay"]);
-            TimeSpan minDelay = TimeSpan.FromMilliseconds(frameDelay);
-            client.MinDelay = minDelay;
-            Assert.AreEqual(minDelay, client.MinDelay);
-
-            int numRequests = int.Parse((string)TestContext.Properties["NumRequests"]);
-            int requestSize = int.Parse((string)TestContext.Properties["RequestSize"]);
-            for (int i = 0; i < numRequests; ++i)
+            using (CancellationTokenSource cts = new CancellationTokenSource())
+            using (MessageClient client = new MessageClient(sessionStream, cts.Token))
             {
-                // Do something with the message.
-                byte[] requestData = new byte[requestSize];
-                r.NextBytes(requestData);
-                Message requestMessage = new Message { Data = requestData };
-                Message responseMessage = client.SendData(requestMessage)
-                                                .ContinueWith((t) => client.RecieveData<Message>())
-                                                .Unwrap().Result;
-                Assert.IsNotNull(responseMessage);
-                Assert.AreEqual(responseSize, responseMessage.Data.Length);
-            }
+                Task sessionTask = client.Open();
+                Thread.Sleep(1000);
+                Assert.IsTrue(client.IsConnectionOpen);
 
-            client.Close();
-            Assert.IsFalse(client.IsConnectionOpen);
+                int frameDelay = int.Parse((string)TestContext.Properties["FrameDelay"]);
+                TimeSpan minDelay = TimeSpan.FromMilliseconds(frameDelay);
+                client.MinDelay = minDelay;
+                Assert.AreEqual(minDelay, client.MinDelay);
+
+                int numRequests = int.Parse((string)TestContext.Properties["NumRequests"]);
+                int requestSize = int.Parse((string)TestContext.Properties["RequestSize"]);
+                for (int i = 0; i < numRequests; ++i)
+                {
+                    // Do something with the message.
+                    byte[] requestData = new byte[requestSize];
+                    r.NextBytes(requestData);
+                    Message requestMessage = new Message { Data = requestData };
+                    Message responseMessage = client.SendData(requestMessage)
+                                                    .ReceiveData<Message>()
+                                                    .Result.Result;
+                    Assert.IsNotNull(responseMessage);
+                    Assert.AreEqual(responseSize, responseMessage.Data.Length);
+                }
+
+                cts.Cancel();
+                sessionTask.Wait();
+                Assert.IsFalse(client.IsConnectionOpen);
+            }
             listenTask.Wait();
         }
 
@@ -88,20 +95,27 @@ namespace MS.SyncFrame.Tests
             return Task.Factory.StartNew(async () =>
             {
                 Random r = new Random();
-                MessageServer server = await MessageServer.CreateServerSession(clientStream);
-                List<Task> sendTasks = new List<Task>();
-
-                while (server.IsConnectionOpen)
+                using (CancellationTokenSource cts = new CancellationTokenSource())
+                using (MessageServer server = new MessageServer(clientStream, cts.Token))
                 {
-                    Message nextMessage = await server.RecieveData<Message>();
+                    List<Task> sendTasks = new List<Task>();
+                    Task sessionTask = server.Open();
 
-                    // Do something with the message.
-                    byte[] responseData = new byte[responseSize];
-                    r.NextBytes(responseData);
-                    await server.SendData(new Message { Data = responseData });
+                    while (server.IsConnectionOpen)
+                    {
+                        Result nextMessage = await server.ReceiveData<Message>()
+                            .ContinueWith((t) =>
+                            {
+                                byte[] responseData = new byte[responseSize];
+                                r.NextBytes(responseData);
+                                Message m = new Message { Data = responseData };
+                                return t.SendData(m);
+                            }).Unwrap();
+                    }
+
+                    cts.Cancel();
+                    await sessionTask;
                 }
-
-                await server.Close();
             });
         }
     }

@@ -120,4 +120,13 @@
   <data name="ASyncFaultOccured" xml:space="preserve">
     <value>A sync fault occured. See the Fault member for more details.</value>
   </data>
+  <data name="CannotCompleteOneWayRequest" xml:space="preserve">
+    <value>An attempt to complete a request as if it were a two-way request was made when the request is one-way.</value>
+  </data>
+  <data name="ConnectionAlreadyOpened" xml:space="preserve">
+    <value>The transport connection was already opened.</value>
+  </data>
+  <data name="TooManyRequests" xml:space="preserve">
+    <value>Too many requests in progress.</value>
+  </data>
 </root>

@@ -1,35 +1,42 @@
 ﻿//-----------------------------------------------------------------------
 // <copyright file="MessageTransport.cs" company="MS">
-//     Copyright (c) 2016 MS.
+//     Copyright (c) 2016 MS
 // </copyright>
 //-----------------------------------------------------------------------
+
 namespace MS.SyncFrame
 {
     using System;
     using System.IO;
+    using System.Threading;
     using System.Threading.Tasks;
     using EnsureThat;
+    using Properties;
 
     /// <summary>
     /// A message transport represents the base messaging functionality for a client or server.
     /// </summary>
     public class MessageTransport : IDisposable
     {
-        /// <summary>
-        /// Whether or not the transport has been disposed.
-        /// </summary>
+        private const int SerializationFactor = 2;
+        private TaskCompletionSource<Task> faultingTaskTcs;
+        private CancellationToken connectionClosedToken;
+        private int requestId = int.MinValue;
+        private bool opened = false;
         private bool disposed = false;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="MessageTransport"/> class.
         /// </summary>
         /// <param name="remoteStream">The remote stream.</param>
-        protected MessageTransport(Stream remoteStream)
+        /// <param name="token">An optional <see cref="CancellationToken"/> which can be used to close the session.</param>
+        protected MessageTransport(Stream remoteStream, CancellationToken token)
         {
             Ensure.That(remoteStream, "remoteStream").IsNotNull();
             this.RemoteStream = remoteStream;
             this.MaxFrameSize = -1;
-            this.IsConnectionOpen = true;
+            this.connectionClosedToken = token;
+            this.faultingTaskTcs = new TaskCompletionSource<Task>();
         }
 
         /// <summary>
@@ -41,7 +48,7 @@ namespace MS.SyncFrame
         }
 
         /// <summary>
-        /// Gets or sets a value indicating whether this instance is open.
+        /// Gets a value indicating whether this instance is open.
         /// </summary>
         /// <value>
         ///   <c>true</c> if this instance is open; otherwise, <c>false</c>.
@@ -49,7 +56,7 @@ namespace MS.SyncFrame
         public bool IsConnectionOpen
         {
             get;
-            set;
+            private set;
         }
 
         /// <summary>
@@ -58,11 +65,28 @@ namespace MS.SyncFrame
         /// <value>
         /// The maximum transmitted size of a sync frame before fragmentation occurs in bytes.
         /// </value>
-        /// <remarks>The default value, -1, indicates that no message will be fragmented.</remarks>
+        /// <remarks>
+        /// The default value, -1, indicates that no message will be fragmented. 
+        /// It's recommended that you leave it at this value unless you're dealing with maintaining a stable connection over a low throughput connection.
+        /// </remarks>
         public int MaxFrameSize
         {
             get;
             set;
+        }
+
+        /// <summary>
+        /// Gets the connection closed token.
+        /// </summary>
+        /// <value>
+        /// The connection closed token.
+        /// </value>
+        protected CancellationToken ConnectionClosedToken
+        {
+            get
+            {
+                return this.connectionClosedToken;
+            }
         }
 
         /// <summary>
@@ -80,18 +104,11 @@ namespace MS.SyncFrame
         /// <summary>
         /// Sends the data.
         /// </summary>
-        /// <typeparam name="TMessage">The type of the message.</typeparam>
-        /// <param name="message">The message.</param>
-        /// <remarks>
-        /// If this task is started as a continuation of <see cref="MessageTransport.RecieveData{TResponse}"/>, 
-        /// it will be treated as the completion of a call to <see cref="MessageTransport.SendData{TMessage}(TMessage)"/> made by the requester.
-        /// Otherwise, it will be treated as a brand-new request.
-        /// </remarks>
-        /// <returns>A task which when waited on will complete when the message is handled remotely.</returns>
-        public Task SendData<TMessage>(TMessage message)
+        /// <typeparam name="TRequest">The type of the request.</typeparam>
+        /// <param name="data">The data.</param>
+        /// <returns>A <see cref="Task{Result}"/> which completes with a <see cref="Result"/> when sent.</returns>
+        public Task<Result> SendData<TRequest>(TRequest data) where TRequest : class
         {
-            // Send a message of the type TMessage to the server, 
-            // completing the task when the message is sent.
             throw new NotImplementedException();
         }
 
@@ -99,67 +116,50 @@ namespace MS.SyncFrame
         /// Receives the data.
         /// </summary>
         /// <typeparam name="TResponse">The type of the response.</typeparam>
-        /// <remarks>
-        /// If this task is started as a continuation of <see cref="MessageTransport.SendData{TMessage}(TMessage)"/>, 
-        /// it will be treated as the response handler of a call to <see cref="MessageTransport.RecieveData{TResponse}"/> made by the responder.
-        /// Otherwise, it will be treated as a brand-new request.
-        /// </remarks>
-        /// <returns>A task which will waited on will yield the response.</returns>
-        public Task<TResponse> RecieveData<TResponse>()
+        /// <returns>A <see cref="Task{Result}"/> which completes with a <see cref="TypedResult{TResult}"/> when the data is available.</returns>
+        public Task<TypedResult<TResponse>> ReceiveData<TResponse>() where TResponse : class
         {
-            // Receive a message of the type TResponse from the server.
             throw new NotImplementedException();
         }
 
         /// <summary>
-        /// Connects to a remotely hosted service.
+        /// Called when a remote or local session fault occurs.
         /// </summary>
-        /// <typeparam name="TRemote">The type of the remote object being connected to.</typeparam>
-        /// <param name="servicePath">The service path.</param>
-        /// <returns>A task which when waited on yields a remote service proxy.</returns>
-        public Task<TRemote> ConnectService<TRemote>(Uri servicePath)
-        {
-            // Connect to a remote service.
-            throw new NotImplementedException();
-        }
-
-        /// <summary>
-        /// Hosts a remote service listener.
-        /// </summary>
-        /// <typeparam name="TService">The type of the remote object being hosted.</typeparam>
-        /// <param name="serviceObject">The service object.</param>
-        /// <param name="servicePath">The service path.</param>
-        /// <returns>A task which when complete indicates the hosting status of the service endpoint.</returns>
-        public Task HostService<TService>(TService serviceObject, Uri servicePath)
-        {
-            // Host a service on the given message transport.
-            throw new NotImplementedException();
-        }
-
-        /// <summary>
-        /// Called to subscribe to the next server fault of type <typeparamref name="TFault"/>.
-        /// </summary>
-        /// <typeparam name="TFault">The type of the fault being reported.</typeparam>
-        /// <returns>A task which when waited on yields the next fault of type <typeparamref name="TFault"/></returns>
+        /// <returns>A task which can be waited on to yield the faulting task for the session.</returns>
         /// <remarks>
         /// When a fault is reported for a session, the session is guaranteed to terminate. 
         /// This means any pending responses to the client, with the exception of the fault, will be canceled.
+        /// The faulting task can be waited on to retrieve the <see cref="FaultException{TFault}"/> which terminated the session.
+        /// If the session is closed by canceling the <see cref="CancellationToken"/> argument, the resulting task from calling
+        /// this method may be put into the canceled state without yielding a <see cref="Task"/> value.
         /// </remarks>
-        public Task<TFault> OnFault<TFault>()
+        public Task<Task> OnFault()
         {
-            throw new NotImplementedException();
+            return this.faultingTaskTcs.Task;
         }
 
         /// <summary>
-        /// Closes this instance.
+        /// Opens the connection and begins listening for messages.
         /// </summary>
-        /// <returns>A task which when waited on indicates the completed close status of the transport.</returns>
-        public Task Close()
+        /// <returns>A task which when complete indicates the transport has completed the session.</returns>
+        /// <remarks>This can be overridden in child classes to provide additional open behavior.</remarks>
+        /// <exception cref="InvalidOperationException">Occurs inside an <see cref="AggregateException"/> if the transport was already opened.</exception>
+        public virtual Task Open()
         {
-            // Close the given client.
-            throw new NotImplementedException();
+            bool alreadyOpened = this.opened;
+            this.opened = true;
+            return Task.Factory.StartNew(() =>
+            {
+                if (alreadyOpened)
+                {
+                    throw new InvalidOperationException(Resources.ConnectionAlreadyOpened);
+                }
+
+                this.connectionClosedToken.Register(this.ConnectionClosedHandler);
+                this.IsConnectionOpen = true;
+            });
         }
-        
+
         /// <summary>
         /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
         /// </summary>
@@ -167,6 +167,36 @@ namespace MS.SyncFrame
         {
             this.Dispose(true);
             GC.SuppressFinalize(this);
+        }
+
+        internal void SetFault<TFaultException>(TFaultException faultEx) where TFaultException : Exception
+        {
+            Ensure.That(faultEx, "faultEx").IsNotNull();
+            this.faultingTaskTcs.SetException(faultEx);
+        }
+
+        internal Task<Result> SendData<TRequest>(Result result, TRequest data) where TRequest : class
+        {
+            return this.SendData(result, data, false);
+        }
+
+        internal Task<Result> SendData<TRequest>(Result result, TRequest data, bool fault) where TRequest : class
+        {
+            Ensure.That(result, "result").IsNotNull();
+            Ensure.That(result.Remote, "result.Remote").IsTrue();
+            ////return Task.Factory.StartNew(() =>
+            ////{
+            ////    Ensure.That(data, "data").IsNotNull();
+            ////    throw new NotImplementedException();
+            ////});
+            throw new NotImplementedException();
+        }
+
+        internal Task<TypedResult<TResponse>> ReceiveData<TResponse>(Result result) where TResponse : class
+        {
+            Ensure.That(result, "result").IsNotNull();
+            Ensure.That(result.Remote, "result.Remote").IsTrue();
+            throw new NotImplementedException();
         }
 
         /// <summary>
@@ -194,7 +224,8 @@ namespace MS.SyncFrame
         /// <summary>
         /// Reads the incoming messages from the remote stream.
         /// </summary>
-        protected void ReadMessages()
+        /// <returns>A task which when complete indicates the read period of the sync is done.</returns>
+        protected Task ReadMessages()
         {
             throw new NotImplementedException();
         }
@@ -202,9 +233,26 @@ namespace MS.SyncFrame
         /// <summary>
         /// Writes the outgoing messages to the remote stream.
         /// </summary>
-        protected void WriteMessages()
+        /// <returns>A task which when complete indicates the write period of the sync is done.</returns>
+        protected Task WriteMessages()
         {
             throw new NotImplementedException();
+        }
+
+        private void ConnectionClosedHandler()
+        {
+            this.IsConnectionOpen = false;
+            this.faultingTaskTcs.TrySetCanceled();
+        }
+
+        private Result CreateResult()
+        {
+            return new Result(this, ++this.requestId);
+        }
+
+        private TypedResult<TData> CreateResult<TData>(TData data) where TData : class
+        {
+            return new TypedResult<TData>(this, ++this.requestId, data);
         }
     }
 }
