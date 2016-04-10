@@ -34,6 +34,7 @@ namespace MS.SyncFrame
     ///                 r.NextBytes(responseData);
     ///                 await server.ReceiveData<Message>()
     ///                             .SendData(new Message { Data = responseData });
+    ///                             .Complete();
     ///             }
     /// 
     ///             cts.Cancel();
@@ -43,6 +44,10 @@ namespace MS.SyncFrame
     /// }
     /// ]]></code>
     /// </example>
+    /// <remarks>
+    /// When an exception is listed in one of the documentation nodes for this class, it is possible that the exception
+    /// will be thrown by itself, or inside an <see cref="AggregateException"/>.
+    /// </remarks>
     public class MessageServer : MessageTransport
     {
         /// <summary>
@@ -64,6 +69,9 @@ namespace MS.SyncFrame
         /// <remarks>
         /// This can be overridden in child classes to provide additional open behavior.
         /// </remarks>
+        /// <exception cref="OperationCanceledException">Occurs if the session was canceled.</exception>
+        /// <exception cref="InvalidOperationException">Occurs if an invalid parameter is passed to one of the <see cref="MessageTransport"/> method calls.</exception>
+        /// <exception cref="FaultException{TFault}">Occurs if a response to a remote request generates a fault.</exception>
         public override Task Open()
         {
             return base.Open().ContinueWith(async (t) =>

@@ -61,6 +61,15 @@ namespace MS.SyncFrame.Properties {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to A request of type &apos;{0}&apos; was not completed, which caused a memory leak..
+        /// </summary>
+        internal static string ARequestOfTypeLeaked {
+            get {
+                return ResourceManager.GetString("ARequestOfTypeLeaked", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to A sync fault occured. See the Fault member for more details..
         /// </summary>
         internal static string ASyncFaultOccured {
@@ -102,6 +111,15 @@ namespace MS.SyncFrame.Properties {
         internal static string RequestAlreadyInProgress {
             get {
                 return ResourceManager.GetString("RequestAlreadyInProgress", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to The response was completed multiple times..
+        /// </summary>
+        internal static string TheResponseWasCompletedMultipleTimes {
+            get {
+                return ResourceManager.GetString("TheResponseWasCompletedMultipleTimes", resourceCulture);
             }
         }
         

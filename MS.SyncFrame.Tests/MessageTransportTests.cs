@@ -82,7 +82,7 @@ namespace MS.SyncFrame.Tests
         }
 
         [TestInitialize]
-        public void TestInitialize()
+        public void MessageTransportTests_TestInitialize()
         {
             testStream = new MemoryStream();
             cts = new CancellationTokenSource();
@@ -91,7 +91,7 @@ namespace MS.SyncFrame.Tests
         }
 
         [TestCleanup]
-        public void TestCleanup()
+        public void MessageTransportTests_TestCleanup()
         {
             if (outTransport != null)
             {
@@ -119,7 +119,7 @@ namespace MS.SyncFrame.Tests
         }
 
         [TestMethod()]
-        public void TokenTest()
+        public void MessageTransportTests_TokenTest()
         {
             Assert.AreEqual(cts.Token, outTransport.Token);
             Assert.AreEqual(cts.Token, inTransport.Token);
@@ -127,7 +127,7 @@ namespace MS.SyncFrame.Tests
 
         [TestMethod()]
         [TestProperty("NumIterations", "1")]
-        public void SendRecieveDataTest()
+        public void MessageTransportTests_SendRecieveDataTest()
         {
             outTransport.Open().Wait();
             inTransport.Open().Wait();
@@ -146,7 +146,7 @@ namespace MS.SyncFrame.Tests
 
         [TestMethod()]
         [TestProperty("NumIterations", "1")]
-        public void SendRecieveMessageTest()
+        public void MessageTransportTests_SendRecieveMessageTest()
         {
             outTransport.Open().Wait();
             inTransport.Open().Wait();
@@ -166,7 +166,7 @@ namespace MS.SyncFrame.Tests
         }
 
         [TestMethod()]
-        public void OnFaultTest()
+        public void MessageTransportTests_OnFaultTest()
         {
             outTransport.Open().Wait();
             inTransport.Open().Wait();
@@ -221,7 +221,7 @@ namespace MS.SyncFrame.Tests
         }
 
         [TestMethod()]
-        public void CloseTest()
+        public void MessageTransportTests_CloseTest()
         {
             Assert.IsFalse(outTransport.IsConnectionOpen);
             Assert.IsFalse(inTransport.IsConnectionOpen);

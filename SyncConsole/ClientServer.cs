@@ -32,7 +32,8 @@ namespace SyncConsole
                         byte[] responseData = new byte[responseSize];
                         r.NextBytes(responseData);
                         await server.ReceiveData<Message>()
-                                    .SendData(new Message { Data = responseData });
+                                    .SendData(new Message { Data = responseData })
+                                    .Complete();
                     }
 
                     cts.Cancel();
@@ -58,8 +59,9 @@ namespace SyncConsole
                         byte[] requestData = new byte[requestSize];
                         r.NextBytes(requestData);
                         Message requestMessage = new Message { Data = requestData };
-                        TypedResult<Message> responseMessage = await client.SendData(requestMessage)
-                                                                           .ReceiveData<Message>();
+                        Message responseMessage = await client.SendData(requestMessage)
+                                                              .ReceiveData<Message>()
+                                                              .Complete();
                     }
 
                     cts.Cancel();

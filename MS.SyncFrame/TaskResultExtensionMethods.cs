@@ -60,5 +60,34 @@ namespace MS.SyncFrame
             return task.ContinueWith((t) => t.Result.LocalTransport.ReceiveData<TResponse>(t.Result, token))
                        .Unwrap();
         }
+
+        /// <summary>
+        /// Completes the specified request.
+        /// </summary>
+        /// <param name="task">The task.</param>
+        /// <returns>A <see cref="Task"/>.</returns>
+        /// <remarks>You must call the <see cref="Complete(Task{Result})"/> method at the end of any message passing transaction to free up memory allocated for the request.</remarks>
+        public static Task Complete(this Task<Result> task)
+        {
+            Ensure.That(task, "task").IsNotNull();
+            return task.ContinueWith((t) => t.Result.Complete());
+        }
+
+        /// <summary>
+        /// Completes the specified request.
+        /// </summary>
+        /// <typeparam name="TResponse">The type of the response.</typeparam>
+        /// <param name="task">The task.</param>
+        /// <returns>A <see cref="Task{TResponse}"/></returns>
+        /// <remarks>You must call the <see cref="Complete(Task{Result})"/> method at the end of any message passing transaction to free up memory allocated for the request.</remarks>
+        public static Task<TResponse> Complete<TResponse>(this Task<TypedResult<TResponse>> task) where TResponse : class
+        {
+            Ensure.That(task, "task").IsNotNull();
+            return task.ContinueWith((t) =>
+            {
+                t.Result.Complete();
+                return t.Result.Result;
+            });
+        }
     }
 }

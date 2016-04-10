@@ -46,7 +46,7 @@ namespace MS.SyncFrame
             {
                 if (this.Request.Remote)
                 {
-                    // We're responding to a remote request, but our request generated a fault. Send the fault back to the remote.
+                    // We're responding to a remote request, but our response generated a fault. Send the fault back to the remote.
                     this.Request.LocalTransport.SendData(this.Request, fault, true);
                 }
 

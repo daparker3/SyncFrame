@@ -9,6 +9,7 @@ namespace MS.SyncFrame
     using System;
     using System.Collections.Concurrent;
     using System.Collections.Generic;
+    using System.Globalization;
     using System.IO;
     using System.Runtime.InteropServices;
     using System.Threading;
@@ -20,16 +21,21 @@ namespace MS.SyncFrame
     /// <summary>
     /// A message transport represents the base messaging functionality for a client or server.
     /// </summary>
+    /// <remarks>
+    /// When an exception is listed in one of the documentation nodes for this class, it is possible that the exception
+    /// will be thrown by itself, or inside an <see cref="AggregateException"/>.
+    /// </remarks>
     public class MessageTransport : IDisposable
     {
         private const int SerializationSizingConstant = 2;
+        private const int SizeRequestChunkRetryBuckets = 10;
         private TaskCompletionSource<Task> faultingTaskTcs = new TaskCompletionSource<Task>();
-        private ConcurrentQueue<QueuedRequestChunk> queuedRequestChunks = new ConcurrentQueue<QueuedRequestChunk>();
-        private ConcurrentBag<long> inProgressRequests = new ConcurrentBag<long>();
+        private ConcurrentQueue<QueuedRequestChunk>[] queuedRequestChunks = new ConcurrentQueue<QueuedRequestChunk>[SizeRequestChunkRetryBuckets];
         private ConcurrentDictionary<long, QueuedResponseChunk> pendingResponsesByRequest = new ConcurrentDictionary<long, QueuedResponseChunk>();
         private ConcurrentDictionary<Type, QueuedResponseChunk> pendingResponsesByType = new ConcurrentDictionary<Type, QueuedResponseChunk>();
         private CancellationToken connectionClosedToken;
         private CancellationTokenRegistration connectionClosedTokenRegistration;
+        private Type leakedRequestType = null;
         private long currentRequest = 0;
         private bool opened = false;
         private bool disposed = false;
@@ -140,6 +146,7 @@ namespace MS.SyncFrame
         /// <typeparam name="TResponse">The type of the response.</typeparam>
         /// <returns>A <see cref="Task{Result}"/> which completes with a <see cref="TypedResult{TResult}"/> when the data is available.</returns>
         /// <exception cref="InvalidOperationException">Thrown if an invalid parameter is received.</exception>
+        /// <exception cref="OperationCanceledException">Occurs if the operation was canceled.</exception>
         public Task<TypedResult<TResponse>> ReceiveData<TResponse>(CancellationToken token) where TResponse : class
         {
             return Task.Factory.StartNew(async () =>
@@ -189,6 +196,7 @@ namespace MS.SyncFrame
         /// <returns>A task which when complete indicates the transport has completed the session.</returns>
         /// <remarks>This can be overridden in child classes to provide additional open behavior.</remarks>
         /// <exception cref="InvalidOperationException">Occurs if the transport was already opened.</exception>
+        /// <exception cref="OperationCanceledException">Occurs if the session was canceled.</exception>
         public virtual Task Open()
         {
             bool alreadyOpened = this.opened;
@@ -243,21 +251,43 @@ namespace MS.SyncFrame
                     throw new InvalidOperationException(Resources.RequestAlreadyInProgress);
                 }
 
+                QueuedResponseChunk qrc;
+                if (!this.pendingResponsesByRequest.TryGetValue(result.RequestId, out qrc))
+                {
+                    throw new InvalidOperationException(Resources.TheResponseWasCompletedMultipleTimes);
+                }
+
                 try
                 {
-                    QueuedResponseChunk qrc = new QueuedResponseChunk();
-                    this.pendingResponsesByRequest[result.RequestId] = qrc;
                     return await this.ReceiveData<TResponse>(qrc, token);
                 }
-                finally
+                catch (Exception)
                 {
-                    QueuedResponseChunk outQrc;
-                    if (!this.pendingResponsesByRequest.TryRemove(result.RequestId, out outQrc))
+                    try
                     {
-                        throw new InvalidOperationException();
+                        this.CompleteResponse(result.RequestId);
                     }
+                    catch
+                    {
+                    }
+
+                    throw;
                 }
             }).Unwrap();
+        }
+
+        internal void CompleteResponse(long requestId)
+        {
+            QueuedResponseChunk qrc;
+            if (!this.pendingResponsesByRequest.TryRemove(requestId, out qrc))
+            {
+                throw new InvalidOperationException(Resources.TheResponseWasCompletedMultipleTimes);
+            }
+        }
+
+        internal void SetLeakedRequest(Result result)
+        {
+            this.leakedRequestType = result.GetType();
         }
 
         /// <summary>
@@ -341,56 +371,98 @@ namespace MS.SyncFrame
         {
             return Task.Factory.StartNew(async () =>
             {
-                int count = this.queuedRequestChunks.Count;
-                List<QueuedRequestChunk> outputChunks = new List<QueuedRequestChunk>(count);
-                long written = sizeof(long);
-                long max = this.MaxFrameSize;
-                if (written >= max)
+                try
                 {
-                    throw new InternalBufferOverflowException();
-                }
-
-                for (int i = 0; written < max && i < count; ++i)
-                {
-                    QueuedRequestChunk chunk;
-                    if (!this.queuedRequestChunks.TryDequeue(out chunk))
+                    long written = sizeof(long);
+                    long max = this.MaxFrameSize;
+                    if (written >= max)
                     {
-                        break;
+                        throw new InternalBufferOverflowException();
                     }
 
-                    int toWrite = sizeof(int) + chunk.Data.Length;
-                    if (written + toWrite > max)
+                    for (int j = this.queuedRequestChunks.Length - 1; j >= 0; --j)
                     {
-                        if (written == sizeof(long))
+                        int count = this.queuedRequestChunks[0].Count;
+                        List<QueuedRequestChunk> outputChunks = new List<QueuedRequestChunk>(count);
+                        for (int i = 0; written < max && i < count; ++i)
                         {
-                            // Uh oh, we can't write this chunk. 
-                            throw new InternalBufferOverflowException();
+                            QueuedRequestChunk chunk;
+                            if (!this.queuedRequestChunks[i].TryDequeue(out chunk))
+                            {
+                                break;
+                            }
+
+                            int toWrite = sizeof(int) + chunk.Data.Length;
+                            if (written + toWrite > max)
+                            {
+                                if (written == sizeof(long))
+                                {
+                                    // Uh oh, we can't write this chunk. 
+                                    throw new InternalBufferOverflowException();
+                                }
+
+                                // Okay, we'll just re-queue this chunk for later.
+                                if (i == this.queuedRequestChunks.Length - 1)
+                                {
+                                    this.queuedRequestChunks[i].Enqueue(chunk);
+                                }
+                                else
+                                {
+                                    this.queuedRequestChunks[i + 1].Enqueue(chunk);
+                                }
+                            }
+                            else
+                            {
+                                written += toWrite;
+                                outputChunks.Add(chunk);
+                            }
                         }
 
-                        // Okay, we'll just re-queue this chunk for later.
-                        this.queuedRequestChunks.Enqueue(chunk);
+                        byte[] bWritten = BitConverter.GetBytes(written);
+                        await Task.Factory.FromAsync(this.RemoteStream.BeginWrite, this.RemoteStream.EndWrite, bWritten, 0, bWritten.Length, null);
+                        foreach (QueuedRequestChunk qrc in outputChunks)
+                        {
+                            byte[] bChunkSize = BitConverter.GetBytes(qrc.Data.Length);
+                            await Task.Factory.FromAsync(this.RemoteStream.BeginWrite, this.RemoteStream.EndWrite, bChunkSize, 0, bChunkSize.Length, null);
+                            await Task.Factory.FromAsync(this.RemoteStream.BeginWrite, this.RemoteStream.EndWrite, qrc.Data, 0, qrc.Data.Length, null);
+                            qrc.RequestCompleteTask.SetResult(0);
+                        }
                     }
-                    else
+
+                    // After writing out our fault to the remote, we fault.
+                    if (written > 0 && this.faultingTaskTcs.Task.IsCompleted)
                     {
-                        written += toWrite;
-                        outputChunks.Add(chunk);
+                        this.faultingTaskTcs.Task.Wait();
+                    }
+
+                    if (this.leakedRequestType != null)
+                    {
+                        throw new InvalidOperationException(string.Format(CultureInfo.CurrentCulture, Resources.ARequestOfTypeLeaked, this.leakedRequestType));
                     }
                 }
-
-                byte[] bWritten = BitConverter.GetBytes(written);
-                await Task.Factory.FromAsync(this.RemoteStream.BeginWrite, this.RemoteStream.EndWrite, bWritten, 0, bWritten.Length, null);
-                foreach (QueuedRequestChunk qrc in outputChunks)
+                catch (Exception)
                 {
-                    byte[] bChunkSize = BitConverter.GetBytes(qrc.Data.Length);
-                    await Task.Factory.FromAsync(this.RemoteStream.BeginWrite, this.RemoteStream.EndWrite, bChunkSize, 0, bChunkSize.Length, null);
-                    await Task.Factory.FromAsync(this.RemoteStream.BeginWrite, this.RemoteStream.EndWrite, qrc.Data, 0, qrc.Data.Length, null);
-                    qrc.RequestCompleteTask.SetResult(0);
-                }
+                    // Try to cancel any pending TCS objects.
+                    this.faultingTaskTcs.TrySetCanceled();
+                    for (int i = 0; i < this.queuedRequestChunks.Length; ++i)
+                    {
+                        foreach (QueuedRequestChunk qrc in this.queuedRequestChunks[i])
+                        {
+                            qrc.RequestCompleteTask.TrySetCanceled();
+                        }
+                    }
 
-                // After writing out our fault to the remote, we fault.
-                if (written > 0 && this.faultingTaskTcs.Task.IsCompleted)
-                {
-                    this.faultingTaskTcs.Task.Wait();
+                    foreach (QueuedResponseChunk qrc in this.pendingResponsesByRequest.Values)
+                    {
+                        qrc.RequestCompleteTask.TrySetCanceled();
+                    }
+
+                    foreach (QueuedResponseChunk qrc in this.pendingResponsesByType.Values)
+                    {
+                        qrc.RequestCompleteTask.TrySetCanceled();
+                    }
+
+                    throw;
                 }
             }).Unwrap();
         }
@@ -408,13 +480,18 @@ namespace MS.SyncFrame
                 Ensure.That(data, "data").IsNotNull();
                 TypedResult<TRequest> response = new TypedResult<TRequest>(this, requestId, data);
                 QueuedRequestChunk qrc = new QueuedRequestChunk();
+                if (!this.pendingResponsesByRequest.TryAdd(requestId, new QueuedResponseChunk()))
+                {
+                    throw new InvalidOperationException(Resources.TheResponseWasCompletedMultipleTimes);
+                }
+
                 using (MemoryStream ms = new MemoryStream(SerializationSizingConstant * Marshal.SizeOf(data)))
                 {
                     response.Write(ms, data, fault);
                     qrc.Data = ms.ToArray();
                 }
 
-                this.queuedRequestChunks.Enqueue(qrc);
+                this.queuedRequestChunks[0].Enqueue(qrc);
                 await qrc.RequestCompleteTask.Task;
                 return (Result)response;
             }).Unwrap();
@@ -431,7 +508,7 @@ namespace MS.SyncFrame
                     if (waited == tcs.Task)
                     {
                         tcs.Task.Wait();
-                        token.ThrowIfCancellationRequested(); 
+                        token.ThrowIfCancellationRequested();
                     }
 
                     using (MemoryStream ms = new MemoryStream(qrc.Data))

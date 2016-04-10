@@ -117,6 +117,9 @@
   <resheader name="writer">
     <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
+  <data name="ARequestOfTypeLeaked" xml:space="preserve">
+    <value>A request of type '{0}' was not completed, which caused a memory leak.</value>
+  </data>
   <data name="ASyncFaultOccured" xml:space="preserve">
     <value>A sync fault occured. See the Fault member for more details.</value>
   </data>
@@ -131,6 +134,9 @@
   </data>
   <data name="RequestAlreadyInProgress" xml:space="preserve">
     <value>Another task is already waiting for this request.</value>
+  </data>
+  <data name="TheResponseWasCompletedMultipleTimes" xml:space="preserve">
+    <value>The response was completed multiple times.</value>
   </data>
   <data name="TooManyRequests" xml:space="preserve">
     <value>Too many requests in progress.</value>

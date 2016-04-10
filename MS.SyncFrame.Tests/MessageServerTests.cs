@@ -51,7 +51,7 @@ namespace MS.SyncFrame.Tests
         [TestProperty("ResponseSize", "100")]
         [TestProperty("FrameDelay", "100")]
         [TestProperty("NumRequests", "100")]
-        public void CreateServerSessionTest()
+        public void MessageServerTests_CreateServerSessionTest()
         {
             int numRequests = int.Parse((string)TestContext.Properties["NumRequests"]);
             int requestSize = int.Parse((string)TestContext.Properties["RequestSize"]);
@@ -68,7 +68,7 @@ namespace MS.SyncFrame.Tests
 
                 while (server.IsConnectionOpen)
                 {
-                    Result nextMessage = server.ReceiveData<Message>()
+                    server.ReceiveData<Message>()
                         .ContinueWith((t) =>
                         {
                             Assert.AreEqual(requestSize, t.Result.Result.Data.Length);
@@ -76,7 +76,7 @@ namespace MS.SyncFrame.Tests
                             byte[] responseData = new byte[responseSize];
                             r.NextBytes(responseData);
                             return t.SendData(new Message { Data = responseData });
-                        }).Unwrap().Result;
+                        }).Unwrap().Complete().Wait();
                 }
 
                 cts.Cancel();
@@ -104,8 +104,9 @@ namespace MS.SyncFrame.Tests
                         byte[] requestData = new byte[requestSize];
                         r.NextBytes(requestData);
                         Message requestMessage = new Message { Data = requestData };
-                        Message responseMessage = (await client.SendData(requestMessage)
-                                                        .ReceiveData<Message>()).Result;
+                        Message responseMessage = await client.SendData(requestMessage)
+                                                        .ReceiveData<Message>()
+                                                        .Complete();
                     }
 
                     cts.Cancel();

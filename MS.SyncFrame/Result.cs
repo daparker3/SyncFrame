@@ -49,6 +49,17 @@ namespace MS.SyncFrame
         }
 
         /// <summary>
+        /// Finalizes an instance of the <see cref="Result"/> class.
+        /// </summary>
+        ~Result()
+        {
+            if (this.localTransport != null)
+            {
+                this.localTransport.SetLeakedRequest(this);
+            }
+        }
+
+        /// <summary>
         /// Gets a value indicating whether this <see cref="Result"/> is remote.
         /// </summary>
         /// <value>
@@ -106,6 +117,15 @@ namespace MS.SyncFrame
             if (value != null)
             {
                 Serializer.Serialize(s, value);
+            }
+        }
+
+        internal void Complete()
+        {
+            if (this.localTransport != null)
+            {
+                this.localTransport.CompleteResponse(this.requestId);
+                this.localTransport = null;
             }
         }
     }
