@@ -49,17 +49,6 @@ namespace MS.SyncFrame
         }
 
         /// <summary>
-        /// Finalizes an instance of the <see cref="Result"/> class.
-        /// </summary>
-        ~Result()
-        {
-            if (this.localTransport != null)
-            {
-                this.localTransport.SetLeakedRequest(this);
-            }
-        }
-
-        /// <summary>
         /// Gets a value indicating whether this <see cref="Result"/> is remote.
         /// </summary>
         /// <value>
@@ -93,6 +82,12 @@ namespace MS.SyncFrame
             {
                 return this.localTransport;
             }
+        }
+
+        internal object ResponseChunk
+        {
+            get;
+            set;
         }
 
         internal void Write<T>(Stream s, T value, bool isFault) where T : class
