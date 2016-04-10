@@ -30,7 +30,7 @@ namespace MS.SyncFrame
         private const int SerializationSizingConstant = 2;
         private const int SizeRequestChunkRetryBuckets = 10;
         private TaskCompletionSource<Task> faultingTaskTcs = new TaskCompletionSource<Task>();
-        private ConcurrentQueue<QueuedRequestChunk>[] queuedRequestChunks = new ConcurrentQueue<QueuedRequestChunk>[SizeRequestChunkRetryBuckets];
+        private ConcurrentBag<QueuedRequestChunk>[] queuedRequestChunks = new ConcurrentBag<QueuedRequestChunk>[SizeRequestChunkRetryBuckets];
         private ConcurrentDictionary<long, QueuedResponseChunk> pendingResponsesByRequest = new ConcurrentDictionary<long, QueuedResponseChunk>();
         private ConcurrentDictionary<Type, QueuedResponseChunk> pendingResponsesByType = new ConcurrentDictionary<Type, QueuedResponseChunk>();
         private CancellationToken connectionClosedToken;
@@ -263,26 +263,16 @@ namespace MS.SyncFrame
                 }
                 catch (Exception)
                 {
-                    try
-                    {
-                        this.CompleteResponse(result.RequestId);
-                    }
-                    catch
-                    {
-                    }
-
+                    this.CompleteResponse(result.RequestId);
                     throw;
                 }
             }).Unwrap();
         }
 
-        internal void CompleteResponse(long requestId)
+        internal bool CompleteResponse(long requestId)
         {
             QueuedResponseChunk qrc;
-            if (!this.pendingResponsesByRequest.TryRemove(requestId, out qrc))
-            {
-                throw new InvalidOperationException(Resources.TheResponseWasCompletedMultipleTimes);
-            }
+            return this.pendingResponsesByRequest.TryRemove(requestId, out qrc);
         }
 
         internal void SetLeakedRequest(Result result)
@@ -322,43 +312,45 @@ namespace MS.SyncFrame
         {
             return Task.Factory.StartNew(async () =>
             {
-                byte[] bToRead = new byte[sizeof(long)];
-                await Task.Factory.FromAsync(this.RemoteStream.BeginRead, this.RemoteStream.EndRead, bToRead, 0, bToRead.Length, null);
-                long toRead = BitConverter.ToInt64(bToRead, 0);
-                toRead -= sizeof(long);
-                while (toRead > 0)
+                try
                 {
-                    byte[] bChunkSz = new byte[sizeof(int)];
-                    await Task.Factory.FromAsync(this.RemoteStream.BeginRead, this.RemoteStream.EndRead, bChunkSz, 0, bChunkSz.Length, null);
-                    int chunkSz = BitConverter.ToInt32(bChunkSz, 0);
-                    byte[] bData = new byte[sizeof(int)];
-                    await Task.Factory.FromAsync(this.RemoteStream.BeginRead, this.RemoteStream.EndRead, bData, 0, bData.Length, null);
-                    MessageHeader header;
-                    long startData;
-                    using (MemoryStream ms = new MemoryStream(bData))
+                FrameHeader frameHeader = Serializer.DeserializeWithLengthPrefix<FrameHeader>(this.RemoteStream, PrefixStyle.Base128);
+                    for (int i = 0; i < frameHeader.MessageSizes.Length; ++i)
                     {
-                        header = Serializer.Deserialize<MessageHeader>(ms);
-                        startData = ms.Position;
-                    }
+                        byte[] bData = new byte[frameHeader.MessageSizes[i]];
+                        await Task.Factory.FromAsync(this.RemoteStream.BeginRead, this.RemoteStream.EndRead, bData, 0, bData.Length, null);
+                        MessageHeader header;
+                        long startData;
+                        using (MemoryStream ms = new MemoryStream(bData))
+                        {
+                            header = Serializer.Deserialize<MessageHeader>(ms);
+                            startData = ms.Position;
+                        }
 
-                    // Now that we have the header, we can figure out what to dispatch it to (if anything)
-                    QueuedResponseChunk qrc = null;
-                    if (this.pendingResponsesByRequest.ContainsKey(header.RequestId))
-                    {
-                        qrc = this.pendingResponsesByRequest[header.RequestId];
-                    }
-                    else
-                    {
-                        qrc = this.pendingResponsesByType[header.DataType];
-                    }
+                        // Now that we have the header, we can figure out what to dispatch it to (if anything)
+                        QueuedResponseChunk qrc = null;
+                        if (this.pendingResponsesByRequest.ContainsKey(header.RequestId))
+                        {
+                            qrc = this.pendingResponsesByRequest[header.RequestId];
+                        }
+                        else
+                        {
+                            qrc = this.pendingResponsesByType[header.DataType];
+                        }
 
-                    if (qrc != null)
-                    {
-                        // Cool. We can dispatch this request.
-                        qrc.Data = new byte[bData.Length - startData];
-                        bData.CopyTo(qrc.Data, startData);
-                        qrc.RequestCompleteTask.SetResult(0);
+                        if (qrc != null)
+                        {
+                            // Cool. We can dispatch this request.
+                            qrc.Data = new byte[bData.Length - startData];
+                            bData.CopyTo(qrc.Data, startData);
+                            qrc.RequestCompleteTask.SetResult(0);
+                        }
                     }
+                }
+                catch (Exception)
+                {
+                    this.CancelTaskCompletionSources();
+                    throw;
                 }
             }).Unwrap();
         }
@@ -380,14 +372,16 @@ namespace MS.SyncFrame
                         throw new InternalBufferOverflowException();
                     }
 
+                    List<int> chunkSizes = new List<int>();
+                    List<QueuedRequestChunk> outputChunks = new List<QueuedRequestChunk>();
+
                     for (int j = this.queuedRequestChunks.Length - 1; j >= 0; --j)
                     {
                         int count = this.queuedRequestChunks[0].Count;
-                        List<QueuedRequestChunk> outputChunks = new List<QueuedRequestChunk>(count);
                         for (int i = 0; written < max && i < count; ++i)
                         {
                             QueuedRequestChunk chunk;
-                            if (!this.queuedRequestChunks[i].TryDequeue(out chunk))
+                            if (!this.queuedRequestChunks[i].TryTake(out chunk))
                             {
                                 break;
                             }
@@ -404,11 +398,11 @@ namespace MS.SyncFrame
                                 // Okay, we'll just re-queue this chunk for later.
                                 if (i == this.queuedRequestChunks.Length - 1)
                                 {
-                                    this.queuedRequestChunks[i].Enqueue(chunk);
+                                    this.queuedRequestChunks[i].Add(chunk);
                                 }
                                 else
                                 {
-                                    this.queuedRequestChunks[i + 1].Enqueue(chunk);
+                                    this.queuedRequestChunks[i + 1].Add(chunk);
                                 }
                             }
                             else
@@ -417,16 +411,16 @@ namespace MS.SyncFrame
                                 outputChunks.Add(chunk);
                             }
                         }
+                    }
 
-                        byte[] bWritten = BitConverter.GetBytes(written);
-                        await Task.Factory.FromAsync(this.RemoteStream.BeginWrite, this.RemoteStream.EndWrite, bWritten, 0, bWritten.Length, null);
-                        foreach (QueuedRequestChunk qrc in outputChunks)
-                        {
-                            byte[] bChunkSize = BitConverter.GetBytes(qrc.Data.Length);
-                            await Task.Factory.FromAsync(this.RemoteStream.BeginWrite, this.RemoteStream.EndWrite, bChunkSize, 0, bChunkSize.Length, null);
-                            await Task.Factory.FromAsync(this.RemoteStream.BeginWrite, this.RemoteStream.EndWrite, qrc.Data, 0, qrc.Data.Length, null);
-                            qrc.RequestCompleteTask.SetResult(0);
-                        }
+                    FrameHeader frameHeader = new FrameHeader();
+                    frameHeader.MessageSizes = chunkSizes.ToArray();
+                    Serializer.SerializeWithLengthPrefix(this.RemoteStream, frameHeader, PrefixStyle.Base128);
+                    foreach (QueuedRequestChunk qrc in outputChunks)
+                    {
+                        byte[] bChunkSize = BitConverter.GetBytes(qrc.Data.Length);
+                        await Task.Factory.FromAsync(this.RemoteStream.BeginWrite, this.RemoteStream.EndWrite, qrc.Data, 0, qrc.Data.Length, null);
+                        qrc.RequestCompleteTask.SetResult(0);
                     }
 
                     // After writing out our fault to the remote, we fault.
@@ -442,35 +436,58 @@ namespace MS.SyncFrame
                 }
                 catch (Exception)
                 {
-                    // Try to cancel any pending TCS objects.
-                    this.faultingTaskTcs.TrySetCanceled();
-                    for (int i = 0; i < this.queuedRequestChunks.Length; ++i)
-                    {
-                        foreach (QueuedRequestChunk qrc in this.queuedRequestChunks[i])
-                        {
-                            qrc.RequestCompleteTask.TrySetCanceled();
-                        }
-                    }
-
-                    foreach (QueuedResponseChunk qrc in this.pendingResponsesByRequest.Values)
-                    {
-                        qrc.RequestCompleteTask.TrySetCanceled();
-                    }
-
-                    foreach (QueuedResponseChunk qrc in this.pendingResponsesByType.Values)
-                    {
-                        qrc.RequestCompleteTask.TrySetCanceled();
-                    }
-
+                    this.CancelTaskCompletionSources();
                     throw;
                 }
             }).Unwrap();
         }
 
+        private void CancelTaskCompletionSources()
+        {
+            int canceled;
+            do
+            {
+                canceled = 0;
+
+                // Try to cancel any pending TCS objects.
+                this.faultingTaskTcs.TrySetCanceled();
+                for (int i = 0; i < this.queuedRequestChunks.Length; ++i)
+                {
+                    QueuedRequestChunk request;
+                    while (this.queuedRequestChunks[i].TryTake(out request))
+                    {
+                        request.RequestCompleteTask.TrySetCanceled();
+                        ++canceled;
+                    }
+                }
+
+                foreach (long requestId in this.pendingResponsesByRequest.Keys)
+                {
+                    QueuedResponseChunk response;
+                    while (this.pendingResponsesByRequest.TryRemove(requestId, out response))
+                    {
+                        response.RequestCompleteTask.TrySetCanceled();
+                        ++canceled;
+                    }
+                }
+
+                foreach (Type type in this.pendingResponsesByType.Keys)
+                {
+                    QueuedResponseChunk response;
+                    while (this.pendingResponsesByType.TryRemove(type, out response))
+                    {
+                        response.RequestCompleteTask.TrySetCanceled();
+                        ++canceled;
+                    }
+                }
+            }
+            while (canceled > 0);
+        }
+
         private void ConnectionClosedHandler()
         {
             this.IsConnectionOpen = false;
-            this.faultingTaskTcs.TrySetCanceled();
+            this.CancelTaskCompletionSources();
         }
 
         private Task<Result> SendData<TRequest>(long requestId, TRequest data, bool fault) where TRequest : class
@@ -485,15 +502,23 @@ namespace MS.SyncFrame
                     throw new InvalidOperationException(Resources.TheResponseWasCompletedMultipleTimes);
                 }
 
-                using (MemoryStream ms = new MemoryStream(SerializationSizingConstant * Marshal.SizeOf(data)))
+                try
                 {
-                    response.Write(ms, data, fault);
-                    qrc.Data = ms.ToArray();
-                }
+                    using (MemoryStream ms = new MemoryStream(SerializationSizingConstant * Marshal.SizeOf(data)))
+                    {
+                        response.Write(ms, data, fault);
+                        qrc.Data = ms.ToArray();
+                    }
 
-                this.queuedRequestChunks[0].Enqueue(qrc);
-                await qrc.RequestCompleteTask.Task;
-                return (Result)response;
+                    this.queuedRequestChunks[0].Add(qrc);
+                    await qrc.RequestCompleteTask.Task;
+                    return (Result)response;
+                }
+                catch (Exception)
+                {
+                    this.CompleteResponse(requestId);
+                    throw;
+                }
             }).Unwrap();
         }
 

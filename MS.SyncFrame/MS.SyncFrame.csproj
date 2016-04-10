@@ -57,6 +57,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="FaultException.cs" />
+    <Compile Include="FrameHeader.cs" />
     <Compile Include="MessageClient.cs" />
     <Compile Include="MessageServer.cs" />
     <Compile Include="MessageTransport.cs" />
