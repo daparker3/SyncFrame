@@ -84,7 +84,7 @@ namespace MS.SyncFrame
             }
         }
 
-        internal object ResponseChunk
+        internal QueuedResponseChunk ResponseChunk
         {
             get;
             set;

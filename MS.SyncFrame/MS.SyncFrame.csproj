@@ -69,6 +69,8 @@
       <DependentUpon>Resources.resx</DependentUpon>
     </Compile>
     <Compile Include="MessageHeader.cs" />
+    <Compile Include="QueuedRequestChunk.cs" />
+    <Compile Include="QueuedResponseChunk.cs" />
     <Compile Include="Result.cs" />
     <Compile Include="TaskResultExtensionMethods.cs" />
     <Compile Include="TypedResult.cs" />

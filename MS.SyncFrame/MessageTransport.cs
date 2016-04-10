@@ -9,7 +9,6 @@ namespace MS.SyncFrame
     using System;
     using System.Collections.Concurrent;
     using System.Collections.Generic;
-    using System.Globalization;
     using System.IO;
     using System.Runtime.InteropServices;
     using System.Threading;
@@ -235,8 +234,38 @@ namespace MS.SyncFrame
         internal Task<Result> SendData<TRequest>(Result request, TRequest data, bool fault) where TRequest : class
         {
             Ensure.That(request, "result").IsNotNull();
-            Ensure.That(request.Remote, "result.Remote").IsTrue();
-            return this.SendData(request.RequestId, data, fault);
+            return Task.Factory.StartNew(async () =>
+            {
+                Ensure.That(data, "data").IsNotNull();
+                TypedResult<TRequest> response = new TypedResult<TRequest>(this, request.RequestId, data);
+                QueuedRequestChunk qrc = new QueuedRequestChunk(SerializationSizingConstant * Marshal.SizeOf(data));
+                if (!request.Remote)
+                {
+                    // This request originates from us; set up our response handler.
+                    QueuedResponseChunk responseChunk = new QueuedResponseChunk();
+
+                    //// To prevent the response chunk going out of scope before the user can get it, we reference it in our
+                    //// return value. That way, if it actually does go out of scope we can catch it with a runtime error.
+                    response.ResponseChunk = responseChunk;
+                    if (!this.pendingResponsesByRequest.TryAdd(request.RequestId, new WeakReference<QueuedResponseChunk>(responseChunk)))
+                    {
+                        throw new InvalidOperationException(Resources.TheResponseWasCompletedMultipleTimes);
+                    }
+                }
+
+                try
+                {
+                    response.Write(qrc.DataStream, data, fault);
+                    this.queuedRequestChunks[0].Add(qrc);
+                    await qrc.RequestCompleteTask.Task;
+                    return (Result)response;
+                }
+                catch (Exception)
+                {
+                    this.CompleteResponse(request.RequestId);
+                    throw;
+                }
+            }).Unwrap();
         }
 
         internal Task<TypedResult<TResponse>> ReceiveData<TResponse>(Result result, CancellationToken token) where TResponse : class
@@ -519,38 +548,6 @@ namespace MS.SyncFrame
             this.CancelTaskCompletionSources();
         }
 
-        private Task<Result> SendData<TRequest>(long requestId, TRequest data, bool fault) where TRequest : class
-        {
-            return Task.Factory.StartNew(async () =>
-            {
-                Ensure.That(data, "data").IsNotNull();
-                TypedResult<TRequest> response = new TypedResult<TRequest>(this, requestId, data);
-                QueuedRequestChunk qrc = new QueuedRequestChunk(SerializationSizingConstant * Marshal.SizeOf(data));
-                QueuedResponseChunk responseChunk = new QueuedResponseChunk();
-                
-                //// To prevent the response chunk going out of scope before the user can get it, we reference it in our
-                //// return value. That way, if it actually does go out of scope we can catch it with a runtime error.
-                response.ResponseChunk = responseChunk;
-                if (!this.pendingResponsesByRequest.TryAdd(requestId, new WeakReference<QueuedResponseChunk>(responseChunk)))
-                {
-                    throw new InvalidOperationException(Resources.TheResponseWasCompletedMultipleTimes);
-                }
-
-                try
-                {
-                    response.Write(qrc.DataStream, data, fault);
-                    this.queuedRequestChunks[0].Add(qrc);
-                    await qrc.RequestCompleteTask.Task;
-                    return (Result)response;
-                }
-                catch (Exception)
-                {
-                    this.CompleteResponse(requestId);
-                    throw;
-                }
-            }).Unwrap();
-        }
-
         private Task<TypedResult<TResponse>> ReceiveData<TResponse>(QueuedResponseChunk qrc, CancellationToken token) where TResponse : class
         {
             return Task.Factory.StartNew(async () =>
@@ -578,52 +575,6 @@ namespace MS.SyncFrame
         private TypedResult<TData> CreateResult<TData>(TData data) where TData : class
         {
             return new TypedResult<TData>(this, ++this.currentRequest, data);
-        }
-
-        private sealed class QueuedRequestChunk : IDisposable
-        {
-            internal QueuedRequestChunk(int capacity)
-            {
-                this.RequestCompleteTask = new TaskCompletionSource<int>();
-                this.DataStream = new MemoryStream(capacity);
-            }
-
-            internal MemoryStream DataStream { get; private set; }
-
-            internal TaskCompletionSource<int> RequestCompleteTask { get; private set; }
-
-            public void Dispose()
-            {
-                if (this.DataStream != null)
-                {
-                    this.DataStream.Dispose();
-                    this.DataStream = null;
-                }
-            }
-        }
-
-        private sealed class QueuedResponseChunk : IDisposable
-        {
-            internal QueuedResponseChunk()
-            {
-                this.RequestCompleteTask = new TaskCompletionSource<int>();
-                this.DataStream = new MemoryStream();
-            }
-
-            internal MessageHeader Header { get; set; }
-
-            internal MemoryStream DataStream { get; private set; }
-
-            internal TaskCompletionSource<int> RequestCompleteTask { get; private set; }
-
-            public void Dispose()
-            {
-                if (this.DataStream != null)
-                {
-                    this.DataStream.Dispose();
-                    this.DataStream = null;
-                }
-            }
         }
     }
 }
