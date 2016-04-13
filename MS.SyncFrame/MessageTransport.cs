@@ -10,7 +10,6 @@ namespace MS.SyncFrame
     using System.Collections.Concurrent;
     using System.Collections.Generic;
     using System.IO;
-    using System.Runtime.InteropServices;
     using System.Threading;
     using System.Threading.Tasks;
     using EnsureThat;
@@ -26,14 +25,13 @@ namespace MS.SyncFrame
     /// </remarks>
     public class MessageTransport : IDisposable
     {
-        private const int SerializationSizingConstant = 2;
-        private const int SizeRequestChunkRetryBuckets = 10;
         private TaskCompletionSource<Task> faultingTaskTcs = new TaskCompletionSource<Task>();
-        private ConcurrentBag<QueuedRequestChunk>[] queuedRequestChunks = new ConcurrentBag<QueuedRequestChunk>[SizeRequestChunkRetryBuckets];
-        private ConcurrentDictionary<long, WeakReference<QueuedResponseChunk>> pendingResponsesByRequest = new ConcurrentDictionary<long, WeakReference<QueuedResponseChunk>>();
-        private ConcurrentDictionary<Type, QueuedResponseChunk> pendingResponsesByType = new ConcurrentDictionary<Type, QueuedResponseChunk>();
+        private ConcurrentRequestResponseBuffer requestResponseBuffer = new ConcurrentRequestResponseBuffer();
+        private ConcurrentRequestBuffer requestBuffer = new ConcurrentRequestBuffer();
+        private ConcurrentResponseBuffer responseBuffer = new ConcurrentResponseBuffer();
         private CancellationToken connectionClosedToken;
         private CancellationTokenRegistration connectionClosedTokenRegistration;
+        private long maxFrameSize = 0;
         private long currentRequest = 0;
         private bool opened = false;
         private bool disposed = false;
@@ -47,7 +45,7 @@ namespace MS.SyncFrame
         {
             Ensure.That(remoteStream, "remoteStream").IsNotNull();
             this.RemoteStream = remoteStream;
-            this.MaxFrameSize = -1;
+            this.MaxFrameSize = long.MaxValue;
             this.connectionClosedToken = token;
         }
 
@@ -78,13 +76,103 @@ namespace MS.SyncFrame
         /// The maximum transmitted size of a sync frame before fragmentation occurs in bytes.
         /// </value>
         /// <remarks>
-        /// The default value, -1, indicates that no message will be fragmented. 
-        /// It's recommended that you leave it at this value unless you're dealing with maintaining a stable connection over a low throughput connection.
+        /// The default value of <see cref="long.MaxValue"/>  indicates that no outgoing data will be fragmented. 
+        /// It's recommended that you leave it at this value unless you're having issues maintaining stable communication over a low throughput connection.
         /// </remarks>
-        public int MaxFrameSize
+        public long MaxFrameSize
         {
-            get;
-            set;
+            get
+            {
+                return this.maxFrameSize;
+            }
+
+            set
+            {
+                Ensure.That(value, "value").IsGte(0);
+                this.maxFrameSize = value;
+            }
+        }
+
+        /// <summary>
+        /// Gets the request count.
+        /// </summary>
+        /// <value>
+        /// The request count.
+        /// </value>
+        public int RequestCount
+        {
+            get
+            {
+                return this.requestBuffer.Count;
+            }
+        }
+
+        /// <summary>
+        /// Gets the request response count.
+        /// </summary>
+        /// <value>
+        /// The request response count.
+        /// </value>
+        public int RequestResponseCount
+        {
+            get
+            {
+                return this.requestResponseBuffer.Count;
+            }
+        }
+
+        /// <summary>
+        /// Gets the response buffer count.
+        /// </summary>
+        /// <value>
+        /// The response buffer count.
+        /// </value>
+        public int ResponseBufferCount
+        {
+            get
+            {
+                return this.responseBuffer.Count;
+            }
+        }
+
+        /// <summary>
+        /// Gets the response buffer use.
+        /// </summary>
+        /// <value>
+        /// The response buffer use.
+        /// </value>
+        public long BufferUse
+        {
+            get
+            {
+                return this.responseBuffer.BufferUse;
+            }
+        }
+
+        /// <summary>
+        /// Gets or sets the size of the response buffer.
+        /// </summary>
+        /// <value>
+        /// The size of the response buffer.
+        /// </value>
+        /// <remarks>
+        /// As the transport receives remote data, it will buffer the data in a structure until the user is able to receive it. 
+        /// It's recommended the default response buffer value of <see cref="long.MaxValue"/> be set to something lower to prevent excessive buffering.
+        /// When a new request causes the buffer to overflow, data will be randomly selected to be discarded until enough space exists in the buffer
+        /// to receive the new data.
+        /// </remarks>
+        public long ResponseBufferSize
+        {
+            get
+            {
+                return this.responseBuffer.BufferSize;
+            }
+
+            set
+            {
+                Ensure.That(value, "value").IsGte(0);
+                this.responseBuffer.BufferSize = value;
+            }
         }
 
         /// <summary>
@@ -121,7 +209,7 @@ namespace MS.SyncFrame
         /// <returns>A <see cref="Task{Result}"/> which completes with a <see cref="Result"/> when sent.</returns>
         /// <exception cref="InvalidOperationException">Thrown if an invalid parameter is received.</exception>
         /// <exception cref="InternalBufferOverflowException">Thrown if the maximum frame size is too small to fit any request.</exception>
-        public Task<Result> SendData<TRequest>(TRequest data) where TRequest : class
+        public Task<RequestResult> SendData<TRequest>(TRequest data) where TRequest : class
         {
             return this.SendData(this.CreateResult(), data, false);
         }
@@ -149,25 +237,14 @@ namespace MS.SyncFrame
         {
             return Task.Factory.StartNew(async () =>
             {
-                Type responseType = typeof(TResponse);
-                if (this.pendingResponsesByType.ContainsKey(responseType))
-                {
-                    throw new InvalidOperationException(Resources.RequestAlreadyInProgress);
-                }
-
-                QueuedResponseChunk qrc = new QueuedResponseChunk();
-                this.pendingResponsesByType[responseType] = qrc;
+                QueuedResponseChunk qrc = await this.responseBuffer.TakeNextResponse(typeof(TResponse), token);
                 try
                 {
                     return await this.ReceiveData<TResponse>(qrc, token);
                 }
                 finally
                 {
-                    QueuedResponseChunk outQrc;
-                    if (!this.pendingResponsesByType.TryRemove(responseType, out outQrc))
-                    {
-                        throw new InvalidOperationException();
-                    }
+                    qrc.Dispose();
                 }
             }).Unwrap();
         }
@@ -226,39 +303,37 @@ namespace MS.SyncFrame
             this.faultingTaskTcs.SetException(faultEx);
         }
 
-        internal Task<Result> SendData<TRequest>(Result result, TRequest data) where TRequest : class
+        internal async Task<Result> SendData<TRequest>(Result result, TRequest data) where TRequest : class
         {
-            return this.SendData(result, data, false);
+            RequestResult rr = await this.SendData(result, data, false);
+            return (Result)rr;
         }
 
-        internal Task<Result> SendData<TRequest>(Result request, TRequest data, bool fault) where TRequest : class
+        internal Task<RequestResult> SendData<TRequest>(Result request, TRequest data, bool fault) where TRequest : class
         {
             Ensure.That(request, "result").IsNotNull();
             return Task.Factory.StartNew(async () =>
             {
                 Ensure.That(data, "data").IsNotNull();
-                TypedResult<TRequest> response = new TypedResult<TRequest>(this, request.RequestId, data);
-                QueuedRequestChunk qrc = new QueuedRequestChunk(SerializationSizingConstant * Marshal.SizeOf(data));
+                RequestResult requestResult = new RequestResult(this, request.RequestId);
+                QueuedRequestChunk qrc = new QueuedRequestChunk();
+
                 if (!request.Remote)
                 {
-                    // This request originates from us; set up our response handler.
-                    QueuedResponseChunk responseChunk = new QueuedResponseChunk();
-
-                    //// To prevent the response chunk going out of scope before the user can get it, we reference it in our
-                    //// return value. That way, if it actually does go out of scope we can catch it with a runtime error.
-                    response.ResponseChunk = responseChunk;
-                    if (!this.pendingResponsesByRequest.TryAdd(request.RequestId, new WeakReference<QueuedResponseChunk>(responseChunk)))
-                    {
-                        throw new InvalidOperationException(Resources.TheResponseWasCompletedMultipleTimes);
-                    }
+                    QueuedResponseChunk responseChunk = this.requestResponseBuffer.CreateResponse(request.RequestId);
+                    requestResult.ResponseChunk = responseChunk;
                 }
 
                 try
                 {
-                    response.Write(qrc.DataStream, data, fault);
-                    this.queuedRequestChunks[0].Add(qrc);
-                    await qrc.RequestCompleteTask.Task;
-                    return (Result)response;
+                    requestResult.Write(qrc.DataStream, data, fault, request.Remote);
+                    this.requestBuffer.QueueRequest(qrc);
+                    if (!await qrc.RequestCompleteTask.Task)
+                    {
+                        throw new InvalidOperationException();
+                    }
+
+                    return requestResult;
                 }
                 catch (Exception)
                 {
@@ -268,45 +343,31 @@ namespace MS.SyncFrame
             }).Unwrap();
         }
 
-        internal Task<TypedResult<TResponse>> ReceiveData<TResponse>(Result result, CancellationToken token) where TResponse : class
+        internal Task<TypedResult<TResponse>> ReceiveData<TResponse>(RequestResult result, CancellationToken token) where TResponse : class
         {
             Ensure.That(result, "result").IsNotNull();
             Ensure.That(result.Remote, "result.Remote").IsTrue();
             return Task.Factory.StartNew(async () =>
             {
-                if (this.pendingResponsesByRequest.ContainsKey(result.RequestId))
-                {
-                    throw new InvalidOperationException(Resources.RequestAlreadyInProgress);
-                }
-
-                WeakReference<QueuedResponseChunk> wrQrc;
-                if (!this.pendingResponsesByRequest.TryGetValue(result.RequestId, out wrQrc))
-                {
-                    throw new InvalidOperationException(Resources.TheResponseWasCompletedMultipleTimes);
-                }
-
-                QueuedResponseChunk qrc;
-                if (!wrQrc.TryGetTarget(out qrc))
-                {
-                    throw new InvalidOperationException(Resources.ARequestOfTypeLeaked);
-                }
-
                 try
                 {
-                    return await this.ReceiveData<TResponse>(qrc, token);
+                    return await this.ReceiveData<TResponse>(result.ResponseChunk, token);
                 }
                 catch (Exception)
                 {
                     this.CompleteResponse(result.RequestId);
                     throw;
                 }
+                finally
+                {
+                    result.ResponseChunk.Dispose();
+                }
             }).Unwrap();
         }
 
         internal bool CompleteResponse(long requestId)
         {
-            WeakReference<QueuedResponseChunk> qrc;
-            return this.pendingResponsesByRequest.TryRemove(requestId, out qrc);
+            return this.requestResponseBuffer.TryCompleteResponse(requestId);
         }
 
         /// <summary>
@@ -328,6 +389,12 @@ namespace MS.SyncFrame
                         this.RemoteStream = null;
                     }
 
+                    if (this.responseBuffer != null)
+                    {
+                        this.responseBuffer.Dispose();
+                        this.responseBuffer = null;
+                    }
+
                     this.connectionClosedTokenRegistration.Dispose();
                 }
             }
@@ -343,45 +410,31 @@ namespace MS.SyncFrame
             {
                 try
                 {
-                    Task leakedRequestCheckTack = this.LeakedRequestCheck();
+                    Task leakedRequestCheckTask = Task.Factory.StartNew(this.requestResponseBuffer.CheckLeakedRequests);
                     FrameHeader frameHeader = Serializer.DeserializeWithLengthPrefix<FrameHeader>(this.RemoteStream, PrefixStyle.Base128);
-                    for (int i = 0; i < frameHeader.MessageSizes.Length; ++i)
+                    IEnumerator<long> sizesEnum = frameHeader.MessageSizes.GetEnumerator();
+                    while (sizesEnum.MoveNext())
                     {
-                        byte[] bData = new byte[frameHeader.MessageSizes[i]];
-                        await Task.Factory.FromAsync(this.RemoteStream.BeginRead, this.RemoteStream.EndRead, bData, 0, bData.Length, null);
-                        MessageHeader header;
-                        long startData;
-                        using (MemoryStream ms = new MemoryStream(bData))
-                        {
-                            header = Serializer.Deserialize<MessageHeader>(ms);
-                            startData = ms.Position;
-                        }
+                        this.ConnectionClosedToken.ThrowIfCancellationRequested();
+                        MessageHeader header = Serializer.Deserialize<MessageHeader>(this.RemoteStream);
 
                         // Now that we have the header, we can figure out what to dispatch it to (if anything)
                         QueuedResponseChunk qrc = null;
-                        if (this.pendingResponsesByRequest.ContainsKey(header.RequestId))
+                        if (header.Response)
                         {
-                            WeakReference<QueuedResponseChunk> wrQrc;
-                            if (this.pendingResponsesByRequest.TryGetValue(header.RequestId, out wrQrc))
+                            if (this.requestResponseBuffer.TryGetResponse(header.RequestId, out qrc))
                             {
-                                wrQrc.TryGetTarget(out qrc);
+                                await this.ReadHandler(sizesEnum.Current, header, qrc);
                             }
                         }
                         else
                         {
-                            qrc = this.pendingResponsesByType[header.DataType];
-                        }
-
-                        if (qrc != null)
-                        {
-                            // Cool. We can dispatch this request.
-                            await qrc.DataStream.ReadAsync(bData, (int)startData, (int)(bData.LongLength - startData));
-                            qrc.RequestCompleteTask.SetResult(0);
-                            qrc.Dispose();
+                            qrc = await this.responseBuffer.TakeNextResponse(header.DataType, this.ConnectionClosedToken);
+                            await this.ReadHandler(sizesEnum.Current, header, qrc);
                         }
                     }
 
-                    await leakedRequestCheckTack;
+                    await leakedRequestCheckTask;
                 }
                 catch (Exception)
                 {
@@ -408,54 +461,35 @@ namespace MS.SyncFrame
                         throw new InternalBufferOverflowException();
                     }
 
-                    List<int> chunkSizes = new List<int>();
+                    FrameHeader frameHeader = new FrameHeader();
+                    frameHeader.MessageSizes = new List<long>();
                     List<QueuedRequestChunk> outputChunks = new List<QueuedRequestChunk>();
-
-                    for (int j = this.queuedRequestChunks.Length - 1; j >= 0; --j)
+                    foreach (QueuedRequestChunk chunk in this.requestBuffer.DequeueRequests())
                     {
-                        int count = this.queuedRequestChunks[0].Count;
-                        for (int i = 0; written < max && i < count; ++i)
+                        long toWrite = chunk.DataStream.Length;
+                        if (written + toWrite > max)
                         {
-                            QueuedRequestChunk chunk;
-                            if (!this.queuedRequestChunks[i].TryTake(out chunk))
+                            if (written == sizeof(long))
                             {
-                                break;
+                                // Uh oh, we can't write this chunk. 
+                                throw new InternalBufferOverflowException();
                             }
 
-                            int toWrite = (int)chunk.DataStream.Length;
-                            if (written + toWrite > max)
-                            {
-                                if (written == sizeof(long))
-                                {
-                                    // Uh oh, we can't write this chunk. 
-                                    throw new InternalBufferOverflowException();
-                                }
-
-                                // Okay, we'll just re-queue this chunk for later.
-                                if (i == this.queuedRequestChunks.Length - 1)
-                                {
-                                    this.queuedRequestChunks[i].Add(chunk);
-                                }
-                                else
-                                {
-                                    this.queuedRequestChunks[i + 1].Add(chunk);
-                                }
-                            }
-                            else
-                            {
-                                written += toWrite;
-                                outputChunks.Add(chunk);
-                            }
+                            this.requestBuffer.RequeueRequest(chunk);
+                        }
+                        else
+                        {
+                            written += toWrite;
+                            outputChunks.Add(chunk);
+                            frameHeader.MessageSizes.Add(chunk.DataStream.Length);
                         }
                     }
 
-                    FrameHeader frameHeader = new FrameHeader();
-                    frameHeader.MessageSizes = chunkSizes.ToArray();
                     Serializer.SerializeWithLengthPrefix(this.RemoteStream, frameHeader, PrefixStyle.Base128);
                     foreach (QueuedRequestChunk qrc in outputChunks)
                     {
                         await qrc.DataStream.CopyToAsync(this.RemoteStream);
-                        qrc.RequestCompleteTask.SetResult(0);
+                        qrc.RequestCompleteTask.SetResult(true);
                         qrc.DataStream.Dispose();
                     }
 
@@ -473,73 +507,12 @@ namespace MS.SyncFrame
             }).Unwrap();
         }
 
-        private Task LeakedRequestCheck()
-        {
-            return Task.Factory.StartNew(() =>
-            {
-                // Check for user errors by seeing if any request that has not been responded to has leaked.
-                foreach (long requestId in this.pendingResponsesByRequest.Keys)
-                {
-                    WeakReference<QueuedResponseChunk> wrQrc;
-                    if (this.pendingResponsesByRequest.TryGetValue(requestId, out wrQrc))
-                    {
-                        QueuedResponseChunk qrc;
-                        if (!wrQrc.TryGetTarget(out qrc))
-                        {
-                            throw new InvalidOperationException(Resources.ARequestOfTypeLeaked);
-                        }
-                    }
-                }
-            });
-        }
-
         private void CancelTaskCompletionSources()
         {
-            int canceled;
-            do
-            {
-                canceled = 0;
-
-                // Try to cancel any pending TCS objects.
-                this.faultingTaskTcs.TrySetCanceled();
-                for (int i = 0; i < this.queuedRequestChunks.Length; ++i)
-                {
-                    QueuedRequestChunk request;
-                    while (this.queuedRequestChunks[i].TryTake(out request))
-                    {
-                        request.RequestCompleteTask.TrySetCanceled();
-                        request.Dispose();
-                        ++canceled;
-                    }
-                }
-
-                foreach (long requestId in this.pendingResponsesByRequest.Keys)
-                {
-                    WeakReference<QueuedResponseChunk> responseWeakRef;
-                    while (this.pendingResponsesByRequest.TryRemove(requestId, out responseWeakRef))
-                    {
-                        QueuedResponseChunk response;
-                        if (responseWeakRef.TryGetTarget(out response))
-                        {
-                            response.RequestCompleteTask.TrySetCanceled();
-                            response.Dispose();
-                            ++canceled;
-                        }
-                    }
-                }
-
-                foreach (Type type in this.pendingResponsesByType.Keys)
-                {
-                    QueuedResponseChunk response;
-                    while (this.pendingResponsesByType.TryRemove(type, out response))
-                    {
-                        response.RequestCompleteTask.TrySetCanceled();
-                        response.Dispose();
-                        ++canceled;
-                    }
-                }
-            }
-            while (canceled > 0);
+            this.faultingTaskTcs.TrySetCanceled();
+            this.requestBuffer.CancelRequests();
+            this.responseBuffer.CancelResponses();
+            this.requestResponseBuffer.CancelResponses();
         }
 
         private void ConnectionClosedHandler()
@@ -548,18 +521,37 @@ namespace MS.SyncFrame
             this.CancelTaskCompletionSources();
         }
 
+        private async Task ReadHandler(long messageSize, MessageHeader header, QueuedResponseChunk qrc)
+        {
+            try
+            {
+                // Cool. We can dispatch this request.
+                await this.RemoteStream.CopyToAsync(qrc.DataStream, (int)(messageSize - header.DataSize));
+                qrc.RequestCompleteTask.SetResult(true);
+            }
+            catch (Exception)
+            {
+                qrc.Dispose();
+                throw;
+            }
+        }
+
         private Task<TypedResult<TResponse>> ReceiveData<TResponse>(QueuedResponseChunk qrc, CancellationToken token) where TResponse : class
         {
             return Task.Factory.StartNew(async () =>
             {
-                TaskCompletionSource<int> tcs = new TaskCompletionSource<int>();
+                TaskCompletionSource<bool> tcs = new TaskCompletionSource<bool>();
                 using (CancellationTokenRegistration ctr = token.Register(() => tcs.SetCanceled()))
                 {
                     Task waited = await Task.WhenAny(tcs.Task, qrc.RequestCompleteTask.Task);
                     if (waited == tcs.Task)
                     {
-                        tcs.Task.Wait();
                         token.ThrowIfCancellationRequested();
+                    }
+
+                    if (!qrc.RequestCompleteTask.Task.Result)
+                    {
+                        throw new InvalidOperationException();
                     }
 
                     return new TypedResult<TResponse>(this, qrc.Header, qrc.DataStream);

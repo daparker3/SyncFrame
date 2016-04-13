@@ -56,6 +56,9 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="ConcurrentRequestBuffer.cs" />
+    <Compile Include="ConcurrentRequestResponseBuffer.cs" />
+    <Compile Include="ConcurrentResponseBuffer.cs" />
     <Compile Include="FaultException.cs" />
     <Compile Include="FrameHeader.cs" />
     <Compile Include="MessageClient.cs" />
@@ -69,8 +72,10 @@
       <DependentUpon>Resources.resx</DependentUpon>
     </Compile>
     <Compile Include="MessageHeader.cs" />
+    <Compile Include="QueuedChunk.cs" />
     <Compile Include="QueuedRequestChunk.cs" />
     <Compile Include="QueuedResponseChunk.cs" />
+    <Compile Include="RequestResult.cs" />
     <Compile Include="Result.cs" />
     <Compile Include="TaskResultExtensionMethods.cs" />
     <Compile Include="TypedResult.cs" />

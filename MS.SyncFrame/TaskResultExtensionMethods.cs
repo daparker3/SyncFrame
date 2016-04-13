@@ -40,8 +40,8 @@ namespace MS.SyncFrame
         /// <param name="task">The task for the request.</param>
         /// <typeparam name="TResponse">The type of the response.</typeparam>
         /// <returns>A <see cref="Task{Result}"/> which completes with the specified response data.</returns>
-        /// <remarks>See the <see cref="MessageTransport.ReceiveData{TResponse}(Result, System.Threading.CancellationToken)"/> method for a list of exceptions which can be thrown.</remarks>
-        public static Task<TypedResult<TResponse>> ReceiveData<TResponse>(this Task<Result> task) where TResponse : class
+        /// <remarks>See the <see cref="MessageTransport.ReceiveData{TResponse}(RequestResult, CancellationToken)"/> method for a list of exceptions which can be thrown.</remarks>
+        public static Task<TypedResult<TResponse>> ReceiveData<TResponse>(this Task<RequestResult> task) where TResponse : class
         {
             return ReceiveData<TResponse>(task, CancellationToken.None);
         }
@@ -53,8 +53,8 @@ namespace MS.SyncFrame
         /// <param name="token">An optional cancellation token.</param>
         /// <typeparam name="TResponse">The type of the response.</typeparam>
         /// <returns>A <see cref="Task{Result}"/> which completes with the specified response data.</returns>
-        /// <remarks>See the <see cref="MessageTransport.ReceiveData{TResponse}(Result, System.Threading.CancellationToken)"/> method for a list of exceptions which can be thrown.</remarks>
-        public static Task<TypedResult<TResponse>> ReceiveData<TResponse>(this Task<Result> task, CancellationToken token) where TResponse : class
+        /// <remarks>See the <see cref="MessageTransport.ReceiveData{TResponse}(RequestResult, CancellationToken)"/> method for a list of exceptions which can be thrown.</remarks>
+        public static Task<TypedResult<TResponse>> ReceiveData<TResponse>(this Task<RequestResult> task, CancellationToken token) where TResponse : class
         {
             Ensure.That(task, "task").IsNotNull();
             return task.ContinueWith((t) => t.Result.LocalTransport.ReceiveData<TResponse>(t.Result, token))
@@ -86,7 +86,7 @@ namespace MS.SyncFrame
             return task.ContinueWith((t) =>
             {
                 t.Result.Complete();
-                return t.Result.Result;
+                return t.Result.Data;
             });
         }
     }

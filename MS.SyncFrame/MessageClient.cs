@@ -9,6 +9,7 @@ namespace MS.SyncFrame
     using System.IO;
     using System.Threading;
     using System.Threading.Tasks;
+    using EnsureThat;
 
     /// <summary>
     /// A message client represents the requester in a client-server messaging session.
@@ -53,6 +54,7 @@ namespace MS.SyncFrame
     public class MessageClient : MessageTransport
     {
         private TaskCompletionSource<TimeSpan> latencyGapMeasurementTcs = new TaskCompletionSource<TimeSpan>();
+        private TimeSpan minDelay;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="MessageClient"/> class.
@@ -74,8 +76,16 @@ namespace MS.SyncFrame
         /// <remarks>The default minimum delay is a value of 25 milliseconds.</remarks>
         public TimeSpan MinDelay
         {
-            get;
-            set;
+            get
+            {
+                return this.minDelay;
+            }
+
+            set
+            {
+                Ensure.That(value, "value").IsGte(TimeSpan.Zero);
+                this.minDelay = value;
+            }
         }
 
         /// <summary>

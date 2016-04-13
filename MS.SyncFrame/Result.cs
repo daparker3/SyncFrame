@@ -84,18 +84,22 @@ namespace MS.SyncFrame
             }
         }
 
-        internal QueuedResponseChunk ResponseChunk
+        internal void Complete()
         {
-            get;
-            set;
+            if (this.localTransport != null)
+            {
+                this.localTransport.CompleteResponse(this.requestId);
+                this.localTransport = null;
+            }
         }
 
-        internal void Write<T>(Stream s, T value, bool isFault) where T : class
+        internal void Write<T>(Stream s, T value, bool isFault, bool isResponse) where T : class
         {
             Ensure.That(s, "s").IsNotNull();
             MessageHeader header = new MessageHeader
             {
                 Faulted = isFault,
+                Response = isResponse,
                 RequestId = this.requestId
             };
 
@@ -111,16 +115,9 @@ namespace MS.SyncFrame
             Serializer.Serialize(s, header);
             if (value != null)
             {
+                long start = s.Position;
                 Serializer.Serialize(s, value);
-            }
-        }
-
-        internal void Complete()
-        {
-            if (this.localTransport != null)
-            {
-                this.localTransport.CompleteResponse(this.requestId);
-                this.localTransport = null;
+                header.DataSize = s.Position = start;
             }
         }
     }

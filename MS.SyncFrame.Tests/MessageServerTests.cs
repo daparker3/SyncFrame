@@ -71,7 +71,7 @@ namespace MS.SyncFrame.Tests
                     server.ReceiveData<Message>()
                         .ContinueWith((t) =>
                         {
-                            Assert.AreEqual(requestSize, t.Result.Result.Data.Length);
+                            Assert.AreEqual(requestSize, t.Result.Data.Data.Length);
                             // Do something with the message.
                             byte[] responseData = new byte[responseSize];
                             r.NextBytes(responseData);

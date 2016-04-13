@@ -31,7 +31,13 @@ namespace MS.SyncFrame
             this.result = result;
         }
 
-        internal TResult Result
+        /// <summary>
+        /// Gets the data.
+        /// </summary>
+        /// <value>
+        /// The data.
+        /// </value>
+        public TResult Data
         {
             get
             {

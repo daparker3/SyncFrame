@@ -131,5 +131,14 @@ namespace MS.SyncFrame.Properties {
                 return ResourceManager.GetString("TooManyRequests", resourceCulture);
             }
         }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Unknown.
+        /// </summary>
+        internal static string Unknown {
+            get {
+                return ResourceManager.GetString("Unknown", resourceCulture);
+            }
+        }
     }
 }

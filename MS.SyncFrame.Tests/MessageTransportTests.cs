@@ -140,7 +140,7 @@ namespace MS.SyncFrame.Tests
                 outTransport.Sync(true);
                 Task<TypedResult<Message>> inMsg = inTransport.ReceiveData<Message>();
                 inTransport.Sync(false);
-                Assert.AreEqual(msg.Data, inMsg.Result.Result.Data);
+                Assert.AreEqual(msg.Data, inMsg.Result.Data.Data);
             }
         }
 
@@ -160,7 +160,7 @@ namespace MS.SyncFrame.Tests
                 Task requestTask = inTransport.ReceiveData<Message>().SendData(request);
                 inTransport.Sync(false);
                 requestTask.Wait();
-                Message response = responseTask.Result.Result;
+                Message response = responseTask.Result.Data;
                 Assert.AreEqual(request.Data, response.Data);
             }
         }
@@ -176,12 +176,12 @@ namespace MS.SyncFrame.Tests
             Task<TypedResult<Message>> responseTask = outTransport.SendData(request).ReceiveData<Message>();
             outTransport.Sync(true);
             Task requestTask = inTransport.ReceiveData<Message>()
-                                          .ContinueWith((t) => { throw new FaultException<Message>( t.Result, t.Result.Result); });
+                                          .ContinueWith((t) => { throw new FaultException<Message>( t.Result, t.Result.Data); });
             inTransport.Sync(false);
             requestTask.Wait();
             try
             {
-                Message response = responseTask.Result.Result;
+                Message response = responseTask.Result.Data;
                 Assert.Fail();
             }
             catch (AggregateException ex)
@@ -193,7 +193,7 @@ namespace MS.SyncFrame.Tests
 
             try
             {
-                Message response = responseTask.Result.Result;
+                Message response = responseTask.Result.Data;
                 Assert.Fail();
             }
             catch (AggregateException ex)

@@ -10,25 +10,10 @@ namespace MS.SyncFrame
     using System.IO;
     using System.Threading.Tasks;
 
-    internal sealed class QueuedRequestChunk : IDisposable
+    internal sealed class QueuedRequestChunk : QueuedChunk
     {
-        internal QueuedRequestChunk(int capacity)
+        internal QueuedRequestChunk()
         {
-            this.RequestCompleteTask = new TaskCompletionSource<int>();
-            this.DataStream = new MemoryStream(capacity);
-        }
-
-        internal MemoryStream DataStream { get; private set; }
-
-        internal TaskCompletionSource<int> RequestCompleteTask { get; private set; }
-
-        public void Dispose()
-        {
-            if (this.DataStream != null)
-            {
-                this.DataStream.Dispose();
-                this.DataStream = null;
-            }
         }
     }
 }
