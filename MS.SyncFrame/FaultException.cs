@@ -20,38 +20,17 @@ namespace MS.SyncFrame
     [Serializable]
     public class FaultException<TFault> : Exception where TFault : class
     {
-        /// <summary>
-        /// Initializes a new instance of the <see cref="FaultException{TFault}"/> class.
-        /// </summary>
-        public FaultException() : base(Resources.ASyncFaultOccured)
+        internal FaultException() : base(Resources.ASyncFaultOccured)
         {
         }
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="FaultException{TFault}"/> class.
-        /// </summary>
-        /// <param name="faultingRequest">The request.</param>
-        /// <param name="fault">The fault.</param>
-        /// <remarks>
-        /// If you don't specify the original request which generated the fault, the fault may not be reported to the other transport and your session may continue running as if nothing happened.
-        /// </remarks>
-        public FaultException(Result faultingRequest, TFault fault) 
+        internal FaultException(Result faultingRequest, TFault fault) 
             : base(Resources.ASyncFaultOccured) 
         {
             Ensure.That(faultingRequest, "faultingRequest").IsNotNull();
             Ensure.That(fault, "fault").IsNotNull();
             this.Request = faultingRequest;
             this.Fault = fault;
-            if (this.Request.LocalTransport != null)
-            {
-                if (this.Request.Remote)
-                {
-                    // We're responding to a remote request, but our response generated a fault. Send the fault back to the remote.
-                    this.Request.LocalTransport.SendData(this.Request, fault, true);
-                }
-
-                this.Request.LocalTransport.SetFault(this);
-            }
         }
 
         /// <summary>

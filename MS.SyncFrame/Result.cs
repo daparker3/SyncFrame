@@ -9,7 +9,9 @@ namespace MS.SyncFrame
     using System;
     using System.IO;
     using System.Reflection;
+    using System.Threading.Tasks;
     using EnsureThat;
+    using Properties;
     using ProtoBuf;
 
     /// <summary>
@@ -84,13 +86,28 @@ namespace MS.SyncFrame
             }
         }
 
-        internal void Complete()
+        /// <summary>
+        /// Faults this request.
+        /// </summary>
+        /// <typeparam name="TFault">The type of the fault.</typeparam>
+        /// <param name="fault">The fault.</param>
+        /// <returns>A <see cref="Task{FaultException}"/> which contains information about the fault and can be thrown to terminate the session.</returns>
+        public async Task<FaultException<TFault>> Fault<TFault>(TFault fault) where TFault : class
         {
-            if (this.localTransport != null)
+            Ensure.That(fault, "fault").IsNotNull();
+            FaultException<TFault> ret = new FaultException<TFault>(this, fault);
+            if (this.LocalTransport != null)
             {
-                this.localTransport.CompleteResponse(this.requestId);
-                this.localTransport = null;
+                if (this.Remote)
+                {
+                    // We're responding to a remote request, but our response generated a fault. Send the fault back to the remote.
+                    await this.LocalTransport.SendData(this, fault, true);
+                }
+
+                this.LocalTransport.SetFault(ret);
             }
+
+            return ret;
         }
 
         internal void Write<T>(Stream s, T value, bool isFault, bool isResponse) where T : class

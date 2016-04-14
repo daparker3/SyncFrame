@@ -17,8 +17,7 @@ namespace MS.SyncFrame
     internal class ConcurrentResponseBuffer : IDisposable
     {
         private static readonly int SizeOfChunkBag = Marshal.SizeOf(typeof(ConcurrentBag<QueuedResponseChunk>));
-        private Random rand = new Random();
-        private ConcurrentDictionary<Type, ConcurrentBag<QueuedResponseChunk>> pendingResponsesByType = new ConcurrentDictionary<Type, ConcurrentBag<QueuedResponseChunk>>();
+        private ConcurrentDictionary<Type, ChunkCollection> pendingResponsesByType = new ConcurrentDictionary<Type, ChunkCollection>();
         private long bufferSize;
         private AutoResetEvent responseCompleteEvent = new AutoResetEvent(false);
         private bool disposed = false;
@@ -39,7 +38,7 @@ namespace MS.SyncFrame
             get
             {
                 int count = 0;
-                foreach (ConcurrentBag<QueuedResponseChunk> chunkBag in this.pendingResponsesByType.Values)
+                foreach (ChunkCollection chunkBag in this.pendingResponsesByType.Values)
                 {
                     count += chunkBag.Count;
                 }
@@ -74,30 +73,20 @@ namespace MS.SyncFrame
             GC.SuppressFinalize(this);
         }
 
-        internal async Task<QueuedResponseChunk> TakeNextResponse(Type responseType, CancellationToken responseCanceledToken)
+        internal async Task QueueResponse(Type responseType, QueuedResponseChunk qrc, CancellationToken responseCanceledToken)
         {
-            ConcurrentBag<QueuedResponseChunk> chunkBag;
-            if (!this.pendingResponsesByType.TryGetValue(responseType, out chunkBag))
-            {
-                await this.ReserveBuffer(SizeOfChunkBag, responseCanceledToken);
-                this.pendingResponsesByType.TryAdd(responseType, new ConcurrentBag<QueuedResponseChunk>());
-                chunkBag = this.pendingResponsesByType[responseType];
-            }
-
-            QueuedResponseChunk qrc;
+            ChunkCollection chunkBag = await this.GetChunkBag(responseType, responseCanceledToken);
             int responseSize = Marshal.SizeOf(typeof(QueuedResponseChunk)) + Marshal.SizeOf(responseType);
-            if (chunkBag.TryTake(out qrc))
-            {
-                this.ReleaseBuffer(responseSize);
-            }
-            else
-            {
-                await this.ReserveBuffer(responseSize, responseCanceledToken);
-                qrc = new QueuedResponseChunk();
-                chunkBag.Add(qrc);
-            }
+            this.ReleaseBuffer(responseSize);
+            chunkBag.QueueChunk(qrc);
+        }
 
-            return qrc;
+        internal async Task<QueuedResponseChunk> DequeueResponse(Type responseType, CancellationToken responseCanceledToken)
+        {
+            ChunkCollection chunkBag = await this.GetChunkBag(responseType, responseCanceledToken);
+            int responseSize = Marshal.SizeOf(typeof(QueuedResponseChunk)) + Marshal.SizeOf(responseType);
+            await this.ReserveBuffer(responseSize, responseCanceledToken);
+            return await chunkBag.DequeueChunk(responseCanceledToken);
         }
 
         internal void CancelResponses()
@@ -108,16 +97,10 @@ namespace MS.SyncFrame
                 canceled = 0;
                 foreach (Type type in this.pendingResponsesByType.Keys)
                 {
-                    ConcurrentBag<QueuedResponseChunk> chunkBag;
+                    ChunkCollection chunkBag;
                     if (this.pendingResponsesByType.TryGetValue(type, out chunkBag))
                     {
-                        QueuedResponseChunk response;
-                        while (chunkBag.TryTake(out response))
-                        {
-                            response.RequestCompleteTask.TrySetCanceled();
-                            response.Dispose();
-                            ++canceled;
-                        }
+                        canceled += chunkBag.CancelResponses();
                     }
                 }
             }
@@ -137,7 +120,43 @@ namespace MS.SyncFrame
                         this.responseCompleteEvent.Dispose();
                         this.responseCompleteEvent = null;
                     }
+
+                    foreach (ChunkCollection chunkBag in this.pendingResponsesByType.Values)
+                    {
+                        chunkBag.Dispose();
+                    }
                 }
+            }
+        }
+
+        private async Task<ChunkCollection> GetChunkBag(Type responseType, CancellationToken responseCanceledToken)
+        {
+            ChunkCollection chunkBag;
+            if (!this.pendingResponsesByType.TryGetValue(responseType, out chunkBag))
+            {
+                await this.ReserveBuffer(SizeOfChunkBag, responseCanceledToken);
+                chunkBag = new ChunkCollection();
+                if (!this.pendingResponsesByType.TryAdd(responseType, chunkBag))
+                {
+                    chunkBag.Dispose();
+                    chunkBag = this.pendingResponsesByType[responseType];
+                }
+            }
+
+            return chunkBag;
+        }
+
+        private async Task ReserveBuffer(int bufSz, CancellationToken responseCanceledToken)
+        {
+            if (bufSz > this.BufferSize)
+            {
+                throw new InvalidOperationException();
+            }
+
+            this.BufferUse += bufSz;
+            while (this.BufferUse > this.BufferSize)
+            {
+                await this.responseCompleteEvent.GetTaskSignalingCompletion();
             }
         }
 
@@ -152,25 +171,86 @@ namespace MS.SyncFrame
             this.responseCompleteEvent.Set();
         }
 
-        private async Task ReserveBuffer(int bufSz, CancellationToken responseCanceledToken)
+        private class ChunkCollection : IDisposable
         {
-            if (bufSz > this.BufferSize)
+            private ConcurrentBag<QueuedResponseChunk> chunkBag = new ConcurrentBag<QueuedResponseChunk>();
+            private AutoResetEvent chunkQueuedEvent = new AutoResetEvent(false);
+            private bool disposed = false;
+
+            ~ChunkCollection()
             {
-                throw new InvalidOperationException();
+                this.Dispose(false);
             }
 
-            this.BufferUse += bufSz;
-            while (this.BufferUse >= this.BufferSize)
+            internal int Count
             {
-                TaskCompletionSource<bool> waitedTcs = new TaskCompletionSource<bool>();
-                RegisteredWaitHandle rwh = ThreadPool.RegisterWaitForSingleObject(this.responseCompleteEvent, (o, e) => waitedTcs.SetResult(true), null, -1, true);
-                try
+                get
                 {
-                    await waitedTcs.Task;
+                    return this.chunkBag.Count;
                 }
-                finally
+            }
+
+            public void Dispose()
+            {
+                this.Dispose(true);
+                GC.SuppressFinalize(this);
+            }
+
+            internal void QueueChunk(QueuedResponseChunk chunk)
+            {
+                this.chunkBag.Add(chunk);
+                this.chunkQueuedEvent.Set();
+            }
+
+            internal async Task<QueuedResponseChunk> DequeueChunk(CancellationToken token)
+            {
+                QueuedResponseChunk ret;
+                while (!this.chunkBag.TryTake(out ret))
                 {
-                    rwh.Unregister(this.responseCompleteEvent);
+                    await this.chunkQueuedEvent.GetTaskSignalingCompletion();
+                }
+
+                return ret;
+            }
+
+            internal int CancelResponses()
+            {
+                int canceled = 0;
+                do
+                {
+                    canceled = 0;
+                    QueuedResponseChunk response;
+                    while (this.chunkBag.TryTake(out response))
+                    {
+                        response.RequestCompleteTask.TrySetCanceled();
+                        response.Dispose();
+                        ++canceled;
+                    }
+                }
+                while (canceled > 0);
+                return canceled;
+            }
+
+            protected virtual void Dispose(bool disposing)
+            {
+                if (!this.disposed)
+                {
+                    this.disposed = true;
+
+                    if (disposing)
+                    {
+                        if (this.chunkQueuedEvent != null)
+                        {
+                            this.chunkQueuedEvent.Dispose();
+                            this.chunkQueuedEvent = null;
+                        }
+
+                        QueuedResponseChunk response;
+                        while (this.chunkBag.TryTake(out response))
+                        {
+                            response.Dispose();
+                        }
+                    }
                 }
             }
         }

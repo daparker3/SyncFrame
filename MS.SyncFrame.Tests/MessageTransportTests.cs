@@ -65,13 +65,13 @@ namespace MS.SyncFrame.Tests
             {
                 if (isOutTransport)
                 {
-                    WriteMessages();
-                    ReadMessages();
+                    WriteMessages().Wait();
+                    ReadMessages().Wait();
                 }
                 else
                 {
-                    ReadMessages();
-                    WriteMessages();
+                    ReadMessages().Wait();
+                    WriteMessages().Wait();
                 }
             }
         }
@@ -176,7 +176,7 @@ namespace MS.SyncFrame.Tests
             Task<TypedResult<Message>> responseTask = outTransport.SendData(request).ReceiveData<Message>();
             outTransport.Sync(true);
             Task requestTask = inTransport.ReceiveData<Message>()
-                                          .ContinueWith((t) => { throw new FaultException<Message>( t.Result, t.Result.Data); });
+                                          .ContinueWith(async (t) => { throw await t.Fault(t.Result.Data); });
             inTransport.Sync(false);
             requestTask.Wait();
             try

@@ -35,10 +35,25 @@ namespace MS.SyncFrame
 
             //// To prevent the response chunk going out of scope before the user can get it, we reference it in our
             //// return value. That way, if it actually does go out of scope we can catch it with a runtime error.
-            if (!this.pendingResponsesByRequest.TryAdd(requestId, new WeakReference<QueuedResponseChunk>(responseChunk)))
+            WeakReference<QueuedResponseChunk> responseWeakRef = new WeakReference<QueuedResponseChunk>(responseChunk);
+            if (!this.pendingResponsesByRequest.TryAdd(requestId, responseWeakRef))
             {
                 throw new InvalidOperationException(Resources.TheResponseWasCompletedMultipleTimes);
             }
+
+            responseChunk.ResponseCompletedTask = responseChunk.RequestCompleteTask.Task.ContinueWith((t) =>
+            {
+                WeakReference<QueuedResponseChunk> removedResponseWeakRef;
+                if (!this.pendingResponsesByRequest.TryRemove(requestId, out removedResponseWeakRef))
+                {
+                    throw new InvalidOperationException(Resources.TheResponseWasCompletedMultipleTimes);
+                }
+
+                if (removedResponseWeakRef != responseWeakRef)
+                {
+                    throw new InvalidOperationException(Resources.RequestAlreadyInProgress);
+                }
+            });
 
             return responseChunk;
         }
@@ -56,29 +71,6 @@ namespace MS.SyncFrame
             }
 
             return false;
-        }
-
-        internal void CheckLeakedRequests()
-        {
-            // Check for user errors by seeing if any request that has not been responded to has leaked.
-            foreach (long requestId in this.pendingResponsesByRequest.Keys)
-            {
-                WeakReference<QueuedResponseChunk> weakQrc;
-                if (this.pendingResponsesByRequest.TryGetValue(requestId, out weakQrc))
-                {
-                    QueuedResponseChunk qrc;
-                    if (!weakQrc.TryGetTarget(out qrc))
-                    {
-                        throw new InvalidOperationException(string.Format(CultureInfo.CurrentCulture, Resources.ARequestOfTypeLeaked, Resources.Unknown));
-                    }
-                }
-            }
-        }
-
-        internal bool TryCompleteResponse(long requestId)
-        {
-            WeakReference<QueuedResponseChunk> qrc;
-            return this.pendingResponsesByRequest.TryRemove(requestId, out qrc);
         }
 
         internal void CancelResponses()

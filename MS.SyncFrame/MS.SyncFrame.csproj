@@ -79,6 +79,7 @@
     <Compile Include="Result.cs" />
     <Compile Include="TaskResultExtensionMethods.cs" />
     <Compile Include="TypedResult.cs" />
+    <Compile Include="WaitHandleExtensionMethods.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="MS.SyncFrame.csproj.vsspell" />

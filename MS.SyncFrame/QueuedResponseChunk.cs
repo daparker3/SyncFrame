@@ -17,5 +17,7 @@ namespace MS.SyncFrame
         }
 
         internal MessageHeader Header { get; set; }
+
+        internal Task ResponseCompletedTask { get; set; }
     }
 }

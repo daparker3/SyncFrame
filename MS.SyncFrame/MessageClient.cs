@@ -100,29 +100,28 @@ namespace MS.SyncFrame
         /// <exception cref="OperationCanceledException">Occurs if the session was canceled.</exception>
         /// <exception cref="InvalidOperationException">Occurs if an invalid parameter is passed to one of the <see cref="MessageTransport"/> method calls.</exception>
         /// <exception cref="FaultException{TFault}">Occurs if a response to a remote request generates a fault.</exception>
-        public override Task Open()
+        public override async Task Open()
         {
-            return base.Open().ContinueWith(async (t) =>
+            await base.Open();
+
+            try
             {
-                try
+                while (this.IsConnectionOpen)
                 {
-                    while (this.IsConnectionOpen)
-                    {
-                        Task delayTask = Task.Delay(this.MinDelay, this.ConnectionClosedToken);
-                        await this.WriteMessages();
-                        await this.ReadMessages();
-                        DateTime gapStart = DateTime.Now;
-                        await delayTask;
-                        this.latencyGapMeasurementTcs.SetResult(DateTime.Now - gapStart);
-                        this.latencyGapMeasurementTcs = new TaskCompletionSource<TimeSpan>();
-                    }
+                    Task delayTask = Task.Delay(this.MinDelay, this.ConnectionClosedToken);
+                    await this.WriteMessages();
+                    await this.ReadMessages();
+                    DateTime gapStart = DateTime.Now;
+                    await delayTask;
+                    this.latencyGapMeasurementTcs.SetResult(DateTime.Now - gapStart);
+                    this.latencyGapMeasurementTcs = new TaskCompletionSource<TimeSpan>();
                 }
-                catch (Exception)
-                {
-                    this.latencyGapMeasurementTcs.TrySetCanceled();
-                    throw;
-                }
-            });
+            }
+            catch (Exception)
+            {
+                this.latencyGapMeasurementTcs.TrySetCanceled();
+                throw;
+            }
         }
 
         /// <summary>
