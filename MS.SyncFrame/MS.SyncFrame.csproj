@@ -64,7 +64,6 @@
     <Compile Include="MessageClient.cs" />
     <Compile Include="MessageServer.cs" />
     <Compile Include="MessageTransport.cs" />
-    <Compile Include="MissingMessageHandler.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Properties\Resources.Designer.cs">
       <AutoGen>True</AutoGen>
@@ -74,6 +73,7 @@
     <Compile Include="MessageHeader.cs" />
     <Compile Include="QueuedChunk.cs" />
     <Compile Include="QueuedRequestChunk.cs" />
+    <Compile Include="QueuedRequestResponseChunk.cs" />
     <Compile Include="QueuedResponseChunk.cs" />
     <Compile Include="RequestResult.cs" />
     <Compile Include="Result.cs" />

@@ -93,7 +93,6 @@ namespace MS.SyncFrame
                     QueuedRequestChunk request;
                     while (this.queuedRequestChunks[i].TryTake(out request))
                     {
-                        request.RequestCompleteTask.TrySetCanceled();
                         request.Dispose();
                         ++canceled;
                     }

@@ -8,7 +8,6 @@ namespace MS.SyncFrame
 {
     using System;
     using System.Collections.Concurrent;
-    using System.IO;
     using System.Runtime.InteropServices;
     using System.Threading;
     using System.Threading.Tasks;
@@ -222,7 +221,6 @@ namespace MS.SyncFrame
                     QueuedResponseChunk response;
                     while (this.chunkBag.TryTake(out response))
                     {
-                        response.RequestCompleteTask.TrySetCanceled();
                         response.Dispose();
                         ++canceled;
                     }

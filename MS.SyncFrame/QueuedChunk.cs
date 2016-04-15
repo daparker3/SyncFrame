@@ -12,27 +12,40 @@ namespace MS.SyncFrame
 
     internal class QueuedChunk : IDisposable
     {
+        private TaskCompletionSource<bool> completeTask = new TaskCompletionSource<bool>();
+        private MemoryStream dataStream = new MemoryStream();
         private bool disposed = false;
-
-        internal QueuedChunk()
-        {
-            this.RequestCompleteTask = new TaskCompletionSource<bool>();
-            this.DataStream = new MemoryStream();
-        }
 
         ~QueuedChunk()
         {
             this.Dispose(false);
         }
 
-        internal MemoryStream DataStream { get; private set; }
+        internal MemoryStream DataStream
+        {
+            get
+            {
+                return this.dataStream;
+            }
+        }
 
-        internal TaskCompletionSource<bool> RequestCompleteTask { get; private set; }
+        protected TaskCompletionSource<bool> CompleteTask
+        {
+            get
+            {
+                return this.completeTask;
+            }
+        }
 
         public void Dispose()
         {
             this.Dispose(true);
             GC.SuppressFinalize(this);
+        }
+
+        internal void Complete()
+        {
+            this.completeTask.TrySetResult(true);
         }
 
         protected virtual void Dispose(bool disposing)
@@ -43,25 +56,18 @@ namespace MS.SyncFrame
 
                 if (disposing)
                 {
-                    if (this.DataStream != null)
+                    if (this.completeTask != null)
                     {
-                        this.DataStream.Dispose();
-                        this.DataStream = null;
+                        this.completeTask.TrySetCanceled();
+                    }
+
+                    if (this.dataStream != null)
+                    {
+                        this.dataStream.Dispose();
+                        this.dataStream = null;
                     }
                 }
             }
-        }
-
-        private void Reset()
-        {
-            this.RequestCompleteTask.TrySetCanceled();
-            this.RequestCompleteTask = new TaskCompletionSource<bool>();
-            if (this.DataStream != null)
-            {
-                this.DataStream.Dispose();
-            }
-
-            this.DataStream = new MemoryStream();
         }
     }
 }

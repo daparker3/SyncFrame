@@ -8,12 +8,12 @@ namespace MS.SyncFrame
 {
     using System;
     using System.Collections.Concurrent;
-    using System.Globalization;
+    using System.Threading.Tasks;
     using Properties;
 
     internal class ConcurrentRequestResponseBuffer
     {
-        private ConcurrentDictionary<long, WeakReference<QueuedResponseChunk>> pendingResponsesByRequest = new ConcurrentDictionary<long, WeakReference<QueuedResponseChunk>>();
+        private ConcurrentDictionary<long, WeakReference<QueuedRequestResponseChunk>> pendingResponsesByRequest = new ConcurrentDictionary<long, WeakReference<QueuedRequestResponseChunk>>();
 
         internal int Count
         {
@@ -23,7 +23,7 @@ namespace MS.SyncFrame
             }
         }
 
-        internal QueuedResponseChunk CreateResponse(long requestId)
+        internal QueuedRequestResponseChunk CreateResponse(long requestId)
         {
             if (this.pendingResponsesByRequest.ContainsKey(requestId))
             {
@@ -31,37 +31,24 @@ namespace MS.SyncFrame
             }
 
             // This request originates from us; set up our response handler.
-            QueuedResponseChunk responseChunk = new QueuedResponseChunk();
+            QueuedRequestResponseChunk responseChunk = new QueuedRequestResponseChunk();
 
             //// To prevent the response chunk going out of scope before the user can get it, we reference it in our
             //// return value. That way, if it actually does go out of scope we can catch it with a runtime error.
-            WeakReference<QueuedResponseChunk> responseWeakRef = new WeakReference<QueuedResponseChunk>(responseChunk);
+            WeakReference<QueuedRequestResponseChunk> responseWeakRef = new WeakReference<QueuedRequestResponseChunk>(responseChunk);
             if (!this.pendingResponsesByRequest.TryAdd(requestId, responseWeakRef))
             {
                 throw new InvalidOperationException(Resources.TheResponseWasCompletedMultipleTimes);
             }
 
-            responseChunk.ResponseCompletedTask = responseChunk.RequestCompleteTask.Task.ContinueWith((t) =>
-            {
-                WeakReference<QueuedResponseChunk> removedResponseWeakRef;
-                if (!this.pendingResponsesByRequest.TryRemove(requestId, out removedResponseWeakRef))
-                {
-                    throw new InvalidOperationException(Resources.TheResponseWasCompletedMultipleTimes);
-                }
-
-                if (removedResponseWeakRef != responseWeakRef)
-                {
-                    throw new InvalidOperationException(Resources.RequestAlreadyInProgress);
-                }
-            });
-
+            responseChunk.PostCompleteTask = this.PostComplete(responseWeakRef, requestId);
             return responseChunk;
         }
 
-        internal bool TryGetResponse(long requestId, out QueuedResponseChunk qrc)
+        internal bool TryGetResponse(long requestId, out QueuedRequestResponseChunk qrc)
         {
             qrc = null;
-            WeakReference<QueuedResponseChunk> weakQrc;
+            WeakReference<QueuedRequestResponseChunk> weakQrc;
             if (this.pendingResponsesByRequest.TryGetValue(requestId, out weakQrc))
             {
                 if (weakQrc.TryGetTarget(out qrc))
@@ -82,13 +69,12 @@ namespace MS.SyncFrame
 
                 foreach (long requestId in this.pendingResponsesByRequest.Keys)
                 {
-                    WeakReference<QueuedResponseChunk> responseWeakRef;
+                    WeakReference<QueuedRequestResponseChunk> responseWeakRef;
                     while (this.pendingResponsesByRequest.TryRemove(requestId, out responseWeakRef))
                     {
-                        QueuedResponseChunk response;
+                        QueuedRequestResponseChunk response;
                         if (responseWeakRef.TryGetTarget(out response))
                         {
-                            response.RequestCompleteTask.TrySetCanceled();
                             response.Dispose();
                             ++canceled;
                         }
@@ -96,6 +82,23 @@ namespace MS.SyncFrame
                 }
             }
             while (canceled > 0);
+        }
+
+        private Task PostComplete(WeakReference<QueuedRequestResponseChunk> responseWeakRef, long requestId)
+        {
+            return Task.Run(() =>
+            {
+                WeakReference<QueuedRequestResponseChunk> removedResponseWeakRef;
+                if (!this.pendingResponsesByRequest.TryRemove(requestId, out removedResponseWeakRef))
+                {
+                    throw new InvalidOperationException(Resources.TheResponseWasCompletedMultipleTimes);
+                }
+
+                if (removedResponseWeakRef != responseWeakRef)
+                {
+                    throw new InvalidOperationException(Resources.RequestAlreadyInProgress);
+                }
+            });
         }
     }
 }

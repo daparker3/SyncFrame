@@ -6,18 +6,15 @@
 
 namespace MS.SyncFrame
 {
-    using System;
-    using System.IO;
     using System.Threading.Tasks;
 
     internal class QueuedResponseChunk : QueuedChunk
     {
-        internal QueuedResponseChunk()
-        {
-        }
-
         internal MessageHeader Header { get; set; }
 
-        internal Task ResponseCompletedTask { get; set; }
+        internal virtual async Task ResponseComplete()
+        {
+            await this.CompleteTask.Task;
+        }
     }
 }

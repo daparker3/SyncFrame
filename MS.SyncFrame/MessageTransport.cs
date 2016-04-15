@@ -7,7 +7,6 @@
 namespace MS.SyncFrame
 {
     using System;
-    using System.Collections.Concurrent;
     using System.Collections.Generic;
     using System.IO;
     using System.Threading;
@@ -236,14 +235,7 @@ namespace MS.SyncFrame
         public async Task<TypedResult<TResponse>> ReceiveData<TResponse>(CancellationToken token) where TResponse : class
         {
             QueuedResponseChunk qrc = await this.responseBuffer.DequeueResponse(typeof(TResponse), token);
-            try
-            {
-                return await this.ReceiveData<TResponse>(qrc);
-            }
-            finally
-            {
-                qrc.Dispose();
-            }
+            return await this.ReceiveData<TResponse>(qrc);
         }
 
         /// <summary>
@@ -273,7 +265,7 @@ namespace MS.SyncFrame
         {
             bool alreadyOpened = this.opened;
             this.opened = true;
-            return Task.Factory.StartNew(() =>
+            return Task.Run(() =>
             {
                 if (alreadyOpened)
                 {
@@ -312,10 +304,11 @@ namespace MS.SyncFrame
             Ensure.That(data, "data").IsNotNull();
             RequestResult requestResult = new RequestResult(this, request.RequestId);
             QueuedRequestChunk qrc = new QueuedRequestChunk();
+            QueuedRequestResponseChunk responseChunk = null;
 
             if (!request.Remote)
             {
-                QueuedResponseChunk responseChunk = this.requestResponseBuffer.CreateResponse(request.RequestId);
+                responseChunk = this.requestResponseBuffer.CreateResponse(request.RequestId);
                 requestResult.ResponseChunk = responseChunk;
             }
 
@@ -323,19 +316,12 @@ namespace MS.SyncFrame
             {
                 requestResult.Write(qrc.DataStream, data, fault, request.Remote);
                 this.requestBuffer.QueueRequest(qrc);
-                if (!await qrc.RequestCompleteTask.Task)
-                {
-                    throw new InvalidOperationException();
-                }
-
                 return requestResult;
             }
             finally
             {
-                if (!request.Remote)
-                {
-                    await requestResult.ResponseChunk.ResponseCompletedTask;
-                }
+                await qrc.ResponseComplete();
+                qrc.Dispose();
             }
         }
 
@@ -343,14 +329,7 @@ namespace MS.SyncFrame
         {
             Ensure.That(result, "result").IsNotNull();
             Ensure.That(result.Remote, "result.Remote").IsTrue();
-            try
-            {
-                return await this.ReceiveData<TResponse>(result.ResponseChunk);
-            }
-            finally
-            {
-                result.ResponseChunk.Dispose();
-            }
+            return await this.ReceiveData<TResponse>(result.ResponseChunk);
         }
 
         /// <summary>
@@ -399,9 +378,9 @@ namespace MS.SyncFrame
                     MessageHeader header = Serializer.Deserialize<MessageHeader>(this.RemoteStream);
 
                     // Now that we have the header, we can figure out what to dispatch it to (if anything)
-                    QueuedResponseChunk qrc = null;
                     if (header.Response)
                     {
+                        QueuedRequestResponseChunk qrc;
                         if (this.requestResponseBuffer.TryGetResponse(header.RequestId, out qrc))
                         {
                             await this.ReadHandler(sizesEnum.Current, header, qrc);
@@ -409,7 +388,7 @@ namespace MS.SyncFrame
                     }
                     else
                     {
-                        qrc = new QueuedResponseChunk();
+                        QueuedResponseChunk qrc = new QueuedResponseChunk();
                         await this.ReadHandler(sizesEnum.Current, header, qrc);
                         await this.responseBuffer.QueueResponse(header.DataType, qrc, this.ConnectionClosedToken);
                     }
@@ -465,8 +444,7 @@ namespace MS.SyncFrame
                 foreach (QueuedRequestChunk qrc in outputChunks)
                 {
                     await qrc.DataStream.CopyToAsync(this.RemoteStream);
-                    qrc.RequestCompleteTask.SetResult(true);
-                    qrc.DataStream.Dispose();
+                    qrc.Complete();
                 }
 
                 // After writing out our fault to the remote, we fault.
@@ -498,28 +476,22 @@ namespace MS.SyncFrame
 
         private async Task ReadHandler(long messageSize, MessageHeader header, QueuedResponseChunk qrc)
         {
-            try
-            {
-                // Cool. We can dispatch this request.
-                await this.RemoteStream.CopyToAsync(qrc.DataStream, (int)(messageSize - header.DataSize));
-                qrc.RequestCompleteTask.SetResult(true);
-            }
-            catch (Exception)
-            {
-                qrc.Dispose();
-                throw;
-            }
+            // Cool. We can dispatch this request.
+            await this.RemoteStream.CopyToAsync(qrc.DataStream, (int)(messageSize - header.DataSize));
+            qrc.Complete();
         }
 
         private async Task<TypedResult<TResponse>> ReceiveData<TResponse>(QueuedResponseChunk qrc) where TResponse : class
         {
-            await qrc.RequestCompleteTask.Task;
-            if (!qrc.RequestCompleteTask.Task.Result)
+            try
             {
-                throw new InvalidOperationException();
+                await qrc.ResponseComplete();
+                return new TypedResult<TResponse>(this, qrc.Header, qrc.DataStream);
             }
-
-            return new TypedResult<TResponse>(this, qrc.Header, qrc.DataStream);
+            finally
+            {
+                qrc.Dispose();
+            }
         }
 
         private Result CreateResult()
