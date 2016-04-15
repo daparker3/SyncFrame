@@ -381,16 +381,21 @@ namespace MS.SyncFrame
                     if (header.Response)
                     {
                         QueuedRequestResponseChunk qrc;
-                        if (this.requestResponseBuffer.TryGetResponse(header.RequestId, out qrc))
+                        if (!this.requestResponseBuffer.TryGetResponse(header.RequestId, out qrc))
                         {
-                            await this.ReadHandler(sizesEnum.Current, header, qrc);
+                            throw new InvalidOperationException(Resources.NoSuchRequest);
                         }
+
+                        await this.ReadHandler(sizesEnum.Current, header, qrc);
                     }
                     else
                     {
                         QueuedResponseChunk qrc = new QueuedResponseChunk();
                         await this.ReadHandler(sizesEnum.Current, header, qrc);
-                        await this.responseBuffer.QueueResponse(header.DataType, qrc, this.ConnectionClosedToken);
+                        if (!await this.responseBuffer.QueueResponse(header.DataType, qrc, this.ConnectionClosedToken))
+                        {
+                            throw new InvalidOperationException(Resources.NoSuchRequest);
+                        }
                     }
                 }
             }
