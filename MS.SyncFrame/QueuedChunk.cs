@@ -7,6 +7,7 @@
 namespace MS.SyncFrame
 {
     using System;
+    using System.Diagnostics.Contracts;
     using System.IO;
     using System.Threading.Tasks;
 
@@ -18,6 +19,7 @@ namespace MS.SyncFrame
 
         internal QueuedChunk(Stream dataStream)
         {
+            Contract.Requires(dataStream != null);
             this.dataStream = dataStream;
         }
 
@@ -50,11 +52,13 @@ namespace MS.SyncFrame
 
         internal void Complete()
         {
+            Contract.Ensures(this.completeTask.Task.Status != TaskStatus.Running);
             this.completeTask.TrySetResult(true);
         }
 
         protected virtual void Dispose(bool disposing)
         {
+            Contract.Ensures(this.disposed);
             if (!this.disposed)
             {
                 this.disposed = true;

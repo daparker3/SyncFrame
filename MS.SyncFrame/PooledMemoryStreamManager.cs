@@ -7,20 +7,26 @@ namespace MS.SyncFrame
 {
     using System;
     using System.Collections.Concurrent;
+    using System.Diagnostics.Contracts;
 
     internal class PooledMemoryStreamManager
     {
         private ConcurrentBag<ArraySegment<byte>> availableMemory = new ConcurrentBag<ArraySegment<byte>>();
-
-        internal PooledMemoryStreamManager()
-        {
-            this.NewSegmentSize = 1 << 20;
-        }
+        private int newSegmentSize = 1 << 20;
 
         internal int NewSegmentSize
         {
-            get;
-            set;
+            get
+            {
+                return this.newSegmentSize;
+            }
+
+            set
+            {
+                Contract.Requires(value > 0);
+                Contract.Ensures(this.newSegmentSize == value);
+                this.newSegmentSize = value;
+            }
         }
 
         internal PooledMemoryStream CreateStream()
@@ -30,6 +36,7 @@ namespace MS.SyncFrame
 
         internal ArraySegment<byte> AllocateMemory(long countBytes)
         {
+            Contract.Requires(countBytes > 0);
             ArraySegment<byte> cur;
             if (this.availableMemory.TryTake(out cur))
             {
@@ -50,6 +57,7 @@ namespace MS.SyncFrame
 
         internal void FreeMemory(ArraySegment<byte> memory)
         {
+            Contract.Requires(memory != null);
             this.availableMemory.Add(memory);
         }
 
@@ -61,6 +69,9 @@ namespace MS.SyncFrame
 
         private ArraySegment<byte> TakeMemory(ArraySegment<byte> cur, long countBytes)
         {
+            Contract.Requires(cur != null);
+            Contract.Requires(countBytes > 0);
+
             // Take off N next bytes from cur.
             if (countBytes < cur.Count)
             {

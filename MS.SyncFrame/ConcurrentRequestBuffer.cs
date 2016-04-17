@@ -6,9 +6,9 @@
 
 namespace MS.SyncFrame
 {
-    using System;
     using System.Collections.Concurrent;
     using System.Collections.Generic;
+    using System.Diagnostics.Contracts;
 
     internal class ConcurrentRequestBuffer
     {
@@ -33,16 +33,14 @@ namespace MS.SyncFrame
 
         internal void QueueRequest(QueuedRequestChunk item)
         {
+            Contract.Requires(item != null);
             this.queuedRequestChunks[0].Add(item);
         }
 
         internal void RequeueRequest(QueuedRequestChunk item)
         {
-            if (!this.isDequeing)
-            {
-                throw new InvalidOperationException();
-            }
-
+            Contract.Requires(item != null);
+            Contract.Assert(this.isDequeing);
             if (this.queueIndex == this.queuedRequestChunks.Length - 1)
             {
                 this.queuedRequestChunks[this.queueIndex].Add(item);
@@ -55,11 +53,9 @@ namespace MS.SyncFrame
 
         internal IEnumerable<QueuedRequestChunk> DequeueRequests()
         {
-            if (this.isDequeing)
-            {
-                throw new InvalidOperationException();
-            }
-
+            Contract.Assert(!this.isDequeing);
+            Contract.Ensures(this.isDequeing == false);
+            Contract.Ensures(this.queueIndex >= 0);
             this.isDequeing = true;
 
             try
@@ -82,6 +78,7 @@ namespace MS.SyncFrame
 
         internal void CancelRequests()
         {
+            Contract.Ensures(this.queuedRequestChunks.Length == 0);
             int canceled;
             do
             {

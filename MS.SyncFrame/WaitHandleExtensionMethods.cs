@@ -6,6 +6,7 @@
 
 namespace MS.SyncFrame
 {
+    using System.Diagnostics.Contracts;
     using System.Threading;
     using System.Threading.Tasks;
 
@@ -13,6 +14,7 @@ namespace MS.SyncFrame
     {
         internal static async Task GetTaskSignalingCompletion(this WaitHandle waitHandle)
         {
+            Contract.Requires(waitHandle != null);
             TaskCompletionSource<bool> waitedTcs = new TaskCompletionSource<bool>();
             RegisteredWaitHandle rwh = ThreadPool.RegisterWaitForSingleObject(waitHandle, (o, e) => waitedTcs.SetResult(true), null, -1, true);
             try

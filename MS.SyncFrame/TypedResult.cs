@@ -6,6 +6,7 @@
 
 namespace MS.SyncFrame
 {
+    using System.Diagnostics.Contracts;
     using System.IO;
     using EnsureThat;
     using ProtoBuf;
@@ -21,13 +22,18 @@ namespace MS.SyncFrame
         internal TypedResult(MessageTransport localTransport, MessageHeader header, Stream s)
             : base(localTransport, header, s)
         {
+            Contract.Requires(localTransport != null);
+            Contract.Requires(header != null);
+            Contract.Requires(s != null);
+            Contract.Ensures(this.result != null);
             this.result = Serializer.Deserialize<TResult>(s);
         }
 
         internal TypedResult(MessageTransport localTransport, int requestId, TResult result)
             : base(localTransport, requestId)
         {
-            Ensure.That(result, "result").IsNotNull();
+            Contract.Requires(localTransport != null);
+            Contract.Requires(result != null);
             this.result = result;
         }
 

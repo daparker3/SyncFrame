@@ -8,6 +8,7 @@ namespace MS.SyncFrame
 {
     using System;
     using System.Collections.Concurrent;
+    using System.Diagnostics.Contracts;
     using System.Runtime.InteropServices;
     using System.Threading;
     using System.Threading.Tasks;
@@ -74,6 +75,8 @@ namespace MS.SyncFrame
 
         internal async Task QueueResponse(Type responseType, QueuedResponseChunk qrc, CancellationToken responseCanceledToken)
         {
+            Contract.Requires(responseType != null);
+            Contract.Requires(qrc != null);
             ChunkCollection chunkBag = await this.GetChunkBag(responseType, responseCanceledToken, true);
             int responseSize = Marshal.SizeOf(typeof(QueuedResponseChunk)) + Marshal.SizeOf(responseType);
             this.ReleaseBuffer(responseSize);
@@ -82,6 +85,7 @@ namespace MS.SyncFrame
 
         internal async Task<QueuedResponseChunk> DequeueResponse(Type responseType, CancellationToken responseCanceledToken)
         {
+            Contract.Requires(responseType != null);
             ChunkCollection chunkBag = await this.GetChunkBag(responseType, responseCanceledToken, true);
             int responseSize = Marshal.SizeOf(typeof(QueuedResponseChunk)) + Marshal.SizeOf(responseType);
             await this.ReserveBuffer(responseSize, responseCanceledToken);
@@ -90,6 +94,7 @@ namespace MS.SyncFrame
 
         internal void CancelResponses()
         {
+            Contract.Ensures(this.pendingResponsesByType.Count == 0);
             int canceled;
             do
             {
@@ -108,6 +113,7 @@ namespace MS.SyncFrame
 
         protected virtual void Dispose(bool disposing)
         {
+            Contract.Ensures(this.disposed == true);
             if (!this.disposed)
             {
                 this.disposed = true;
@@ -130,6 +136,7 @@ namespace MS.SyncFrame
 
         private async Task<ChunkCollection> GetChunkBag(Type responseType, CancellationToken responseCanceledToken, bool createIfNotExist)
         {
+            Contract.Requires(responseType != null);
             ChunkCollection chunkBag;
             if (!this.pendingResponsesByType.TryGetValue(responseType, out chunkBag))
             {
@@ -150,10 +157,9 @@ namespace MS.SyncFrame
 
         private async Task ReserveBuffer(int bufSz, CancellationToken responseCanceledToken)
         {
-            if (bufSz > this.BufferSize)
-            {
-                throw new InvalidOperationException();
-            }
+            Contract.Requires(bufSz > 0);
+            Contract.Requires(bufSz <= this.BufferSize);
+            Contract.Ensures(this.BufferUse <= this.BufferSize);
 
             this.BufferUse += bufSz;
             while (this.BufferUse > this.BufferSize)
@@ -164,12 +170,10 @@ namespace MS.SyncFrame
 
         private void ReleaseBuffer(int bufSz)
         {
+            Contract.Requires(bufSz > 0);
+            Contract.Requires(bufSz <= this.BufferSize);
+            Contract.Ensures(this.BufferUse >= 0);
             this.BufferUse -= bufSz;
-            if (this.BufferUse < 0)
-            {
-                throw new InvalidOperationException();
-            }
-
             this.responseCompleteEvent.Set();
         }
 
@@ -200,6 +204,7 @@ namespace MS.SyncFrame
 
             internal void QueueChunk(QueuedResponseChunk chunk)
             {
+                Contract.Requires(chunk != null);
                 this.chunkBag.Add(chunk);
                 this.chunkQueuedEvent.Set();
             }
@@ -217,6 +222,7 @@ namespace MS.SyncFrame
 
             internal int CancelResponses()
             {
+                Contract.Ensures(this.chunkBag.Count == 0);
                 int canceled = 0;
                 do
                 {
@@ -234,6 +240,7 @@ namespace MS.SyncFrame
 
             protected virtual void Dispose(bool disposing)
             {
+                Contract.Ensures(this.disposed == true);
                 if (!this.disposed)
                 {
                     this.disposed = true;

@@ -30,6 +30,7 @@ namespace MS.SyncFrame
             where TResponse : class
         {
             Ensure.That(task, "task").IsNotNull();
+            Ensure.That(data, "data").IsNotNull();
             TypedResult<TRequest> result = await task;
             return await result.LocalTransport.SendData(result, data);
         }
@@ -95,6 +96,7 @@ namespace MS.SyncFrame
         public static async Task<FaultException<TFault>> Fault<TFault>(this Task<RequestResult> task, TFault fault) where TFault : class
         {
             Ensure.That(task, "task").IsNotNull();
+            Ensure.That(fault, "fault").IsNotNull();
             Result result = await task;
             return await result.Fault(fault);
         }
@@ -112,6 +114,7 @@ namespace MS.SyncFrame
             where TRequest : class
         {
             Ensure.That(task, "task").IsNotNull();
+            Ensure.That(fault, "fault").IsNotNull();
             Result result = await task;
             return await result.Fault(fault);
         }

@@ -8,6 +8,7 @@ namespace MS.SyncFrame
 {
     using System;
     using System.Collections.Concurrent;
+    using System.Diagnostics.Contracts;
     using System.IO;
     using System.Threading.Tasks;
     using Properties;
@@ -26,10 +27,8 @@ namespace MS.SyncFrame
 
         internal QueuedRequestResponseChunk CreateResponse(Stream dataStream, int requestId)
         {
-            if (this.pendingResponsesByRequest.ContainsKey(requestId))
-            {
-                throw new InvalidOperationException(Resources.RequestAlreadyInProgress);
-            }
+            Contract.Requires(dataStream != null);
+            Contract.Assert(!this.pendingResponsesByRequest.ContainsKey(requestId), Resources.TooManyRequests);
 
             // This request originates from us; set up our response handler.
             QueuedRequestResponseChunk responseChunk = new QueuedRequestResponseChunk(dataStream);
@@ -37,12 +36,8 @@ namespace MS.SyncFrame
             //// To prevent the response chunk going out of scope before the user can get it, we reference it in our
             //// return value. That way, if it actually does go out of scope we can catch it with a runtime error.
             WeakReference<QueuedRequestResponseChunk> responseWeakRef = new WeakReference<QueuedRequestResponseChunk>(responseChunk);
-            if (!this.pendingResponsesByRequest.TryAdd(requestId, responseWeakRef))
-            {
-                throw new InvalidOperationException(Resources.TheResponseWasCompletedMultipleTimes);
-            }
-
-            responseChunk.PostCompleteTask = this.PostComplete(responseWeakRef, requestId);
+            Contract.Assert(this.pendingResponsesByRequest.TryAdd(requestId, responseWeakRef), Resources.TheResponseWasCompletedMultipleTimes);
+            responseChunk.PostCompleteTask = Task.Run(() => this.PostComplete(responseWeakRef, requestId));
             return responseChunk;
         }
 
@@ -63,6 +58,7 @@ namespace MS.SyncFrame
 
         internal void CancelResponses()
         {
+            Contract.Ensures(this.pendingResponsesByRequest.Count == 0);
             int canceled;
             do
             {
@@ -85,21 +81,12 @@ namespace MS.SyncFrame
             while (canceled > 0);
         }
 
-        private Task PostComplete(WeakReference<QueuedRequestResponseChunk> responseWeakRef, int requestId)
+        private void PostComplete(WeakReference<QueuedRequestResponseChunk> responseWeakRef, int requestId)
         {
-            return Task.Run(() =>
-            {
-                WeakReference<QueuedRequestResponseChunk> removedResponseWeakRef;
-                if (!this.pendingResponsesByRequest.TryRemove(requestId, out removedResponseWeakRef))
-                {
-                    throw new InvalidOperationException(Resources.TheResponseWasCompletedMultipleTimes);
-                }
-
-                if (removedResponseWeakRef != responseWeakRef)
-                {
-                    throw new InvalidOperationException(Resources.RequestAlreadyInProgress);
-                }
-            });
+            Contract.Requires(responseWeakRef != null);
+            WeakReference<QueuedRequestResponseChunk> removedResponseWeakRef;
+            Contract.Assert(this.pendingResponsesByRequest.TryRemove(requestId, out removedResponseWeakRef), Resources.TheResponseWasCompletedMultipleTimes);
+            Contract.Assert(responseWeakRef == removedResponseWeakRef, Resources.RequestAlreadyInProgress);
         }
     }
 }

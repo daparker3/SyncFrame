@@ -6,6 +6,7 @@
 
 namespace MS.SyncFrame
 {
+    using System.Diagnostics.Contracts;
     using System.IO;
     using System.Threading.Tasks;
 
@@ -14,6 +15,7 @@ namespace MS.SyncFrame
         internal QueuedRequestChunk(Stream dataStream)
             : base(dataStream)
         {
+            Contract.Requires(dataStream != null);
         }
 
         internal virtual async Task ResponseComplete()

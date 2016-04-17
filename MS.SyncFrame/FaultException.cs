@@ -7,6 +7,7 @@
 namespace MS.SyncFrame
 {
     using System;
+    using System.Diagnostics.Contracts;
     using System.Runtime.Serialization;
     using System.Security.Permissions;
     using EnsureThat;
@@ -27,8 +28,9 @@ namespace MS.SyncFrame
         internal FaultException(Result faultingRequest, TFault fault) 
             : base(Resources.ASyncFaultOccured) 
         {
-            Ensure.That(faultingRequest, "faultingRequest").IsNotNull();
-            Ensure.That(fault, "fault").IsNotNull();
+            Contract.Requires(fault != null);
+            Contract.Requires(faultingRequest != null);
+            Contract.Requires(faultingRequest.Remote);
             this.Request = faultingRequest;
             this.Fault = fault;
         }

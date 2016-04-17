@@ -6,7 +6,7 @@
 namespace MS.SyncFrame
 {
     using System;
-    using System.Collections.Generic;
+    using System.Diagnostics.Contracts;
     using System.IO;
     using EnsureThat;
 
@@ -19,6 +19,7 @@ namespace MS.SyncFrame
 
         internal PooledMemoryStream(PooledMemoryStreamManager manager)
         {
+            Contract.Requires(manager != null);
             this.manager = manager;
         }
 
@@ -68,7 +69,8 @@ namespace MS.SyncFrame
 
             set
             {
-                Ensure.That(value, "value").IsGte(0).And().IsLte(this.root.Count);
+                Contract.Requires(value >= 0);
+                Contract.Requires(value < this.Length);
                 this.position = value;
             }
         }
@@ -79,6 +81,15 @@ namespace MS.SyncFrame
 
         public override int Read(byte[] buffer, int offset, int count)
         {
+            Contract.Requires(buffer != null);
+            Contract.Requires(offset > 0);
+            Contract.Requires(offset < buffer.Length);
+            Contract.Requires(count < buffer.Length - offset);
+            if (count > 0)
+            {
+                Contract.Ensures(this.Position > 0);
+            }
+
             long toRead = this.Length - this.Position;
             if (toRead > count)
             {
@@ -92,8 +103,9 @@ namespace MS.SyncFrame
 
         public override long Seek(long offset, SeekOrigin origin)
         {
+            Contract.Ensures(this.Position >= 0);
+            Contract.Ensures(this.Position < this.Length);
             long newPos = -1;
-
             switch (origin)
             {
                 case SeekOrigin.Begin:
@@ -106,7 +118,8 @@ namespace MS.SyncFrame
                     newPos = this.Length - offset;
                     break;
                 default:
-                    throw new InvalidOperationException();
+                    Contract.Assert(false);
+                    break;
             }
 
             this.Position = newPos;
@@ -115,6 +128,8 @@ namespace MS.SyncFrame
 
         public override void SetLength(long value)
         {
+            Contract.Requires(value >= 0);
+            Contract.Ensures(this.Length == value);
             ArraySegment<byte> newRoot = this.manager.AllocateMemory(value);
             if (this.root != null)
             {
@@ -136,6 +151,15 @@ namespace MS.SyncFrame
 
         public override void Write(byte[] buffer, int offset, int count)
         {
+            Contract.Requires(buffer != null);
+            Contract.Requires(offset > 0);
+            Contract.Requires(offset < buffer.Length);
+            Contract.Requires(count < buffer.Length - offset);
+            if (count > 0)
+            {
+                Contract.Ensures(this.Position > 0);
+            }
+
             long toWrite = this.Length - this.Position;
             if (toWrite > count)
             {
@@ -148,6 +172,7 @@ namespace MS.SyncFrame
 
         protected override void Dispose(bool disposing)
         {
+            Contract.Ensures(this.disposed == true);
             base.Dispose(disposing);
 
             if (!this.disposed)

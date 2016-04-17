@@ -28,8 +28,9 @@ namespace MS.SyncFrame
 
         internal Result(MessageTransport localTransport, MessageHeader header, Stream s)
         {
-            Ensure.That(header, "header").IsNotNull();
-            Ensure.That(s, "s").IsNotNull();
+            Contract.Requires(localTransport != null);
+            Contract.Requires(header != null);
+            Contract.Requires(s != null);
             this.localTransport = localTransport;
             this.remote = true;
             this.requestId = header.RequestId;
@@ -46,6 +47,7 @@ namespace MS.SyncFrame
 
         internal Result(MessageTransport localTransport, int requestId)
         {
+            Contract.Requires(localTransport != null);
             this.localTransport = localTransport;
             this.remote = false;
             this.requestId = requestId;
@@ -95,7 +97,7 @@ namespace MS.SyncFrame
         /// <returns>A <see cref="Task{FaultException}"/> which contains information about the fault and can be thrown to terminate the session.</returns>
         public async Task<FaultException<TFault>> Fault<TFault>(TFault fault) where TFault : class
         {
-            Ensure.That(fault, "fault").IsNotNull();
+            Contract.Requires(fault != null);
             FaultException<TFault> ret = new FaultException<TFault>(this, fault);
             if (this.LocalTransport != null)
             {
@@ -113,7 +115,8 @@ namespace MS.SyncFrame
 
         internal void Write<T>(Stream s, T value, bool isFault, bool isResponse) where T : class
         {
-            Ensure.That(s, "s").IsNotNull();
+            Contract.Requires(s != null);
+            Contract.Requires(value != null);
             MessageHeader header = new MessageHeader
             {
                 Faulted = isFault,
@@ -121,15 +124,7 @@ namespace MS.SyncFrame
                 RequestId = this.requestId
             };
 
-            if (value == null)
-            {
-                Ensure.That(isFault, "isFault").IsFalse();
-            }
-            else
-            {
-                header.DataType = value.GetType();
-            }
-
+            header.DataType = value.GetType();
             long toWrite = Marshal.SizeOf(header) + Marshal.SizeOf(value);
             s.SetLength(toWrite);
             Serializer.Serialize(s, header);
@@ -139,7 +134,7 @@ namespace MS.SyncFrame
                 Serializer.Serialize(s, value);
                 s.Position = start;
                 header.DataSize = start;
-                Contract.Ensures(s.Position == (int)header.DataSize);
+                Contract.Assert(s.Position == (int)header.DataSize);
             }
         }
     }

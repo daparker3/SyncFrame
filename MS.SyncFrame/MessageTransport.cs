@@ -44,7 +44,7 @@ namespace MS.SyncFrame
         /// <param name="token">An optional <see cref="CancellationToken"/> which can be used to close the session.</param>
         protected MessageTransport(Stream remoteStream, CancellationToken token)
         {
-            Ensure.That(remoteStream, "remoteStream").IsNotNull();
+            Contract.Requires(remoteStream != null);
             this.RemoteStream = remoteStream;
             this.MaxFrameSize = int.MaxValue;
             this.connectionClosedToken = token;
@@ -233,7 +233,6 @@ namespace MS.SyncFrame
         /// <typeparam name="TRequest">The type of the request.</typeparam>
         /// <param name="data">The data.</param>
         /// <returns>A <see cref="Task{Result}"/> which completes with a <see cref="Result"/> when sent.</returns>
-        /// <exception cref="InvalidOperationException">Thrown if an invalid parameter is received.</exception>
         /// <exception cref="InternalBufferOverflowException">Thrown if the maximum frame size is too small to fit any request.</exception>
         /// <remarks>
         /// If you try to send a message of type <typeparamref name="TRequest"/> without the transport on the other side of the connection ever calling
@@ -242,6 +241,7 @@ namespace MS.SyncFrame
         /// </remarks>
         public async Task<RequestResult> SendData<TRequest>(TRequest data) where TRequest : class
         {
+            Contract.Requires(data != null);
             return await this.SendData(this.CreateResult(), data, false);
         }
 
@@ -250,7 +250,6 @@ namespace MS.SyncFrame
         /// </summary>
         /// <typeparam name="TResponse">The type of the response.</typeparam>
         /// <returns>A <see cref="Task{Result}"/> which completes with a <see cref="TypedResult{TResult}"/> when the data is available.</returns>
-        /// <exception cref="InvalidOperationException">Thrown if an invalid parameter is received.</exception>
         /// <remarks>
         /// Neglecting to call this method on a message type which is being sent on the other end could result in an unrecoverable memory leak.
         /// See the remarks for <see cref="SendData{TRequest}(TRequest)"/> for more information.
@@ -266,7 +265,6 @@ namespace MS.SyncFrame
         /// <param name="token">An optional cancellation token.</param>
         /// <typeparam name="TResponse">The type of the response.</typeparam>
         /// <returns>A <see cref="Task{Result}"/> which completes with a <see cref="TypedResult{TResult}"/> when the data is available.</returns>
-        /// <exception cref="InvalidOperationException">Thrown if an invalid parameter is received.</exception>
         /// <exception cref="OperationCanceledException">Occurs if the operation was canceled.</exception>
         public async Task<TypedResult<TResponse>> ReceiveData<TResponse>(CancellationToken token) where TResponse : class
         {
@@ -295,7 +293,6 @@ namespace MS.SyncFrame
         /// </summary>
         /// <returns>A task which when complete indicates the transport has completed the session.</returns>
         /// <remarks>This can be overridden in child classes to provide additional open behavior.</remarks>
-        /// <exception cref="InvalidOperationException">Occurs if the transport was already opened.</exception>
         /// <exception cref="OperationCanceledException">Occurs if the session was canceled.</exception>
         public virtual Task Open()
         {
@@ -324,20 +321,27 @@ namespace MS.SyncFrame
 
         internal void SetFault<TFaultException>(TFaultException faultEx) where TFaultException : Exception
         {
-            Ensure.That(faultEx, "faultEx").IsNotNull();
+            Contract.Requires(faultEx != null);
             this.faultingTaskTcs.SetException(faultEx);
         }
 
         internal async Task<Result> SendData<TRequest>(Result result, TRequest data) where TRequest : class
         {
+            Contract.Requires(result != null);
+            Contract.Requires(data != null);
             RequestResult rr = await this.SendData(result, data, false);
             return (Result)rr;
         }
 
         internal async Task<RequestResult> SendData<TRequest>(Result request, TRequest data, bool fault) where TRequest : class
         {
-            Ensure.That(request, "result").IsNotNull();
-            Ensure.That(data, "data").IsNotNull();
+            Contract.Requires(request != null);
+            Contract.Requires(data != null);
+            if (fault)
+            {
+                Contract.Requires(request.Remote);
+            }
+
             RequestResult requestResult = new RequestResult(this, request.RequestId);
             QueuedRequestChunk qrc = new QueuedRequestChunk(this.pooledMemoryManager.CreateStream());
             QueuedRequestResponseChunk responseChunk = null;
@@ -363,8 +367,8 @@ namespace MS.SyncFrame
 
         internal async Task<TypedResult<TResponse>> ReceiveData<TResponse>(RequestResult result, CancellationToken token) where TResponse : class
         {
-            Ensure.That(result, "result").IsNotNull();
-            Ensure.That(result.Remote, "result.Remote").IsTrue();
+            Contract.Requires(result != null);
+            Contract.Requires(result.Remote);
             return await this.ReceiveData<TResponse>(result.ResponseChunk);
         }
 
@@ -374,6 +378,7 @@ namespace MS.SyncFrame
         /// <param name="disposing"><c>true</c> to release both managed and unmanaged resources; <c>false</c> to release only unmanaged resources.</param>
         protected virtual void Dispose(bool disposing)
         {
+            Contract.Ensures(this.disposed == true);
             if (!this.disposed)
             {
                 this.disposed = true;
@@ -417,11 +422,7 @@ namespace MS.SyncFrame
                     if (header.Response)
                     {
                         QueuedRequestResponseChunk qrc;
-                        if (!this.requestResponseBuffer.TryGetResponse(header.RequestId, out qrc))
-                        {
-                            throw new InvalidOperationException(Resources.NoSuchRequest);
-                        }
-
+                        Contract.Assert(this.requestResponseBuffer.TryGetResponse(header.RequestId, out qrc), Resources.NoSuchRequest);
                         await this.ReadHandler(sizesEnum.Current, header, qrc);
                     }
                     else
@@ -476,8 +477,8 @@ namespace MS.SyncFrame
                     {
                         written += toWrite;
                         outputChunks.Add(chunk);
+                        Contract.Assert(chunk.DataStream.Length == (int)chunk.DataStream.Length);
                         frameHeader.MessageSizes.Add((int)chunk.DataStream.Length);
-                        Contract.Ensures(chunk.DataStream.Length == (int)chunk.DataStream.Length);
                     }
                 }
 
@@ -491,7 +492,7 @@ namespace MS.SyncFrame
                 // After writing out our fault to the remote, we fault.
                 if (written > 0 && this.faultingTaskTcs.Task.IsCompleted)
                 {
-                    this.faultingTaskTcs.Task.Wait();
+                    await this.faultingTaskTcs.Task;
                 }
             }
             catch (Exception)
@@ -517,16 +518,21 @@ namespace MS.SyncFrame
 
         private async Task ReadHandler(int messageSize, MessageHeader header, QueuedResponseChunk qrc)
         {
+            Contract.Requires(messageSize > 0);
+            Contract.Requires(header != null);
+            Contract.Requires(qrc != null);
             long toRead = messageSize - header.DataSize;
             qrc.DataStream.SetLength(toRead);
 
             // Cool. We can dispatch this request.
+            Contract.Assert(toRead == (int)toRead);
             await this.RemoteStream.CopyToAsync(qrc.DataStream, (int)toRead);
             qrc.Complete();
         }
 
         private async Task<TypedResult<TResponse>> ReceiveData<TResponse>(QueuedResponseChunk qrc) where TResponse : class
         {
+            Contract.Requires(qrc != null);
             try
             {
                 await qrc.ResponseComplete();
@@ -545,6 +551,7 @@ namespace MS.SyncFrame
 
         private TypedResult<TData> CreateResult<TData>(TData data) where TData : class
         {
+            Contract.Requires(data != null);
             return new TypedResult<TData>(this, ++this.currentRequest, data);
         }
     }

@@ -98,7 +98,6 @@ namespace MS.SyncFrame
         /// This can be overridden in child classes to provide additional open behavior.
         /// </remarks>
         /// <exception cref="OperationCanceledException">Occurs if the session was canceled.</exception>
-        /// <exception cref="InvalidOperationException">Occurs if an invalid parameter is passed to one of the <see cref="MessageTransport"/> method calls.</exception>
         /// <exception cref="FaultException{TFault}">Occurs if a response to a remote request generates a fault.</exception>
         public override async Task Open()
         {
