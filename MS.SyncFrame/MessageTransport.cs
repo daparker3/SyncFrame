@@ -8,6 +8,7 @@ namespace MS.SyncFrame
 {
     using System;
     using System.Collections.Generic;
+    using System.Diagnostics.Contracts;
     using System.IO;
     using System.Threading;
     using System.Threading.Tasks;
@@ -31,8 +32,8 @@ namespace MS.SyncFrame
         private CancellationToken connectionClosedToken;
         private CancellationTokenRegistration connectionClosedTokenRegistration;
         private PooledMemoryStreamManager pooledMemoryManager = new PooledMemoryStreamManager();
-        private long maxFrameSize = 0;
-        private long currentRequest = 0;
+        private int maxFrameSize = 0;
+        private int currentRequest = 0;
         private bool opened = false;
         private bool disposed = false;
 
@@ -45,7 +46,7 @@ namespace MS.SyncFrame
         {
             Ensure.That(remoteStream, "remoteStream").IsNotNull();
             this.RemoteStream = remoteStream;
-            this.MaxFrameSize = long.MaxValue;
+            this.MaxFrameSize = int.MaxValue;
             this.connectionClosedToken = token;
         }
 
@@ -76,10 +77,11 @@ namespace MS.SyncFrame
         /// The maximum transmitted size of a sync frame before fragmentation occurs in bytes.
         /// </value>
         /// <remarks>
-        /// The default value of <see cref="long.MaxValue"/>  indicates that no outgoing data will be fragmented. 
+        /// The default value of <see cref="int.MaxValue"/>  indicates that no outgoing data will be fragmented. 
         /// It's recommended that you leave it at this value unless you're having issues maintaining stable communication over a low throughput connection.
+        /// The size of the frame header for outgoing frames is not counted as part of the maximum frame size.
         /// </remarks>
-        public long MaxFrameSize
+        public int MaxFrameSize
         {
             get
             {
@@ -100,11 +102,11 @@ namespace MS.SyncFrame
         /// The minimum size used when allocating new buffer.
         /// </value>
         /// <remarks>
-        /// The default value for buffer pool is 1 megabyte. 
-        /// The transport will try to allocate memory used for serialization from a buffer, periodically flushing it 
-        /// to enable garbage collection to work.
+        /// The transport will try to allocate memory used for serialization from a buffer when none is available, periodically clearing it
+        /// to enable garbage collection to work. The size of the buffer pool is a function of the number of workers in a
+        /// process and the size of each individual request. The default buffer pool size is 1 megabyte. 
         /// </remarks>
-        public long BufferPoolSize
+        public int BufferPoolSize
         {
             get
             {
@@ -166,7 +168,7 @@ namespace MS.SyncFrame
         /// <value>
         /// The response buffer use.
         /// </value>
-        public long BufferUse
+        public int BufferUse
         {
             get
             {
@@ -182,11 +184,10 @@ namespace MS.SyncFrame
         /// </value>
         /// <remarks>
         /// As the transport receives remote data, it will buffer the data in a structure until the user is able to receive it. 
-        /// It's recommended the default response buffer value of <see cref="long.MaxValue"/> be set to something lower to prevent excessive buffering.
-        /// When a new request causes the buffer to overflow, data will be randomly selected to be discarded until enough space exists in the buffer
-        /// to receive the new data.
+        /// It's recommended the default response buffer value of <see cref="int.MaxValue"/> be set to something lower to prevent excessive buffering.
+        /// When a new request causes the buffer to overflow, the task for the request will wait until enough buffer is available to proceed.
         /// </remarks>
-        public long ResponseBufferSize
+        public int ResponseBufferSize
         {
             get
             {
@@ -406,7 +407,7 @@ namespace MS.SyncFrame
             try
             {
                 FrameHeader frameHeader = Serializer.DeserializeWithLengthPrefix<FrameHeader>(this.RemoteStream, PrefixStyle.Base128);
-                IEnumerator<long> sizesEnum = frameHeader.MessageSizes.GetEnumerator();
+                IEnumerator<int> sizesEnum = frameHeader.MessageSizes.GetEnumerator();
                 while (sizesEnum.MoveNext())
                 {
                     this.ConnectionClosedToken.ThrowIfCancellationRequested();
@@ -448,7 +449,7 @@ namespace MS.SyncFrame
         {
             try
             {
-                long written = sizeof(long);
+                long written = 0;
                 long max = this.MaxFrameSize;
                 if (written >= max)
                 {
@@ -456,7 +457,7 @@ namespace MS.SyncFrame
                 }
 
                 FrameHeader frameHeader = new FrameHeader();
-                frameHeader.MessageSizes = new List<long>();
+                frameHeader.MessageSizes = new List<int>();
                 List<QueuedRequestChunk> outputChunks = new List<QueuedRequestChunk>();
                 foreach (QueuedRequestChunk chunk in this.requestBuffer.DequeueRequests())
                 {
@@ -475,7 +476,8 @@ namespace MS.SyncFrame
                     {
                         written += toWrite;
                         outputChunks.Add(chunk);
-                        frameHeader.MessageSizes.Add(chunk.DataStream.Length);
+                        frameHeader.MessageSizes.Add((int)chunk.DataStream.Length);
+                        Contract.Ensures(chunk.DataStream.Length == (int)chunk.DataStream.Length);
                     }
                 }
 
@@ -513,7 +515,7 @@ namespace MS.SyncFrame
             this.CancelTaskCompletionSources();
         }
 
-        private async Task ReadHandler(long messageSize, MessageHeader header, QueuedResponseChunk qrc)
+        private async Task ReadHandler(int messageSize, MessageHeader header, QueuedResponseChunk qrc)
         {
             long toRead = messageSize - header.DataSize;
             qrc.DataStream.SetLength(toRead);

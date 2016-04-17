@@ -7,6 +7,7 @@
 namespace MS.SyncFrame
 {
     using System;
+    using System.Diagnostics.Contracts;
     using System.IO;
     using System.Reflection;
     using System.Runtime.InteropServices;
@@ -22,7 +23,7 @@ namespace MS.SyncFrame
         private static MethodInfo serializeMethod = typeof(Serializer).GetMethod("Serialize");
         private static MethodInfo deserializeMethod = typeof(Serializer).GetMethod("Deserialize");
         private MessageTransport localTransport;
-        private long requestId;
+        private int requestId;
         private bool remote;
 
         internal Result(MessageTransport localTransport, MessageHeader header, Stream s)
@@ -43,7 +44,7 @@ namespace MS.SyncFrame
             }
         }
 
-        internal Result(MessageTransport localTransport, long requestId)
+        internal Result(MessageTransport localTransport, int requestId)
         {
             this.localTransport = localTransport;
             this.remote = false;
@@ -70,7 +71,7 @@ namespace MS.SyncFrame
         /// <value>
         /// The request identifier.
         /// </value>
-        public long RequestId
+        public int RequestId
         {
             get
             {
@@ -134,9 +135,11 @@ namespace MS.SyncFrame
             Serializer.Serialize(s, header);
             if (value != null)
             {
-                long start = s.Position;
+                int start = (int)s.Position;
                 Serializer.Serialize(s, value);
-                header.DataSize = s.Position = start;
+                s.Position = start;
+                header.DataSize = start;
+                Contract.Ensures(s.Position == (int)header.DataSize);
             }
         }
     }

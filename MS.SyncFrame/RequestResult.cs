@@ -19,7 +19,7 @@ namespace MS.SyncFrame
         {
         }
 
-        internal RequestResult(MessageTransport localTransport, long requestId)
+        internal RequestResult(MessageTransport localTransport, int requestId)
             : base(localTransport, requestId)
         {
         }

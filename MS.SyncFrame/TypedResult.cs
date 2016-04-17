@@ -24,7 +24,7 @@ namespace MS.SyncFrame
             this.result = Serializer.Deserialize<TResult>(s);
         }
 
-        internal TypedResult(MessageTransport localTransport, long requestId, TResult result)
+        internal TypedResult(MessageTransport localTransport, int requestId, TResult result)
             : base(localTransport, requestId)
         {
             Ensure.That(result, "result").IsNotNull();

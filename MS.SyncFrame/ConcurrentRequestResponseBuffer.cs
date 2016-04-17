@@ -14,7 +14,7 @@ namespace MS.SyncFrame
 
     internal class ConcurrentRequestResponseBuffer
     {
-        private ConcurrentDictionary<long, WeakReference<QueuedRequestResponseChunk>> pendingResponsesByRequest = new ConcurrentDictionary<long, WeakReference<QueuedRequestResponseChunk>>();
+        private ConcurrentDictionary<int, WeakReference<QueuedRequestResponseChunk>> pendingResponsesByRequest = new ConcurrentDictionary<int, WeakReference<QueuedRequestResponseChunk>>();
 
         internal int Count
         {
@@ -24,7 +24,7 @@ namespace MS.SyncFrame
             }
         }
 
-        internal QueuedRequestResponseChunk CreateResponse(Stream dataStream, long requestId)
+        internal QueuedRequestResponseChunk CreateResponse(Stream dataStream, int requestId)
         {
             if (this.pendingResponsesByRequest.ContainsKey(requestId))
             {
@@ -46,7 +46,7 @@ namespace MS.SyncFrame
             return responseChunk;
         }
 
-        internal bool TryGetResponse(long requestId, out QueuedRequestResponseChunk qrc)
+        internal bool TryGetResponse(int requestId, out QueuedRequestResponseChunk qrc)
         {
             qrc = null;
             WeakReference<QueuedRequestResponseChunk> weakQrc;
@@ -68,7 +68,7 @@ namespace MS.SyncFrame
             {
                 canceled = 0;
 
-                foreach (long requestId in this.pendingResponsesByRequest.Keys)
+                foreach (int requestId in this.pendingResponsesByRequest.Keys)
                 {
                     WeakReference<QueuedRequestResponseChunk> responseWeakRef;
                     while (this.pendingResponsesByRequest.TryRemove(requestId, out responseWeakRef))
@@ -85,7 +85,7 @@ namespace MS.SyncFrame
             while (canceled > 0);
         }
 
-        private Task PostComplete(WeakReference<QueuedRequestResponseChunk> responseWeakRef, long requestId)
+        private Task PostComplete(WeakReference<QueuedRequestResponseChunk> responseWeakRef, int requestId)
         {
             return Task.Run(() =>
             {

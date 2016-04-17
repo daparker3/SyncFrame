@@ -16,10 +16,10 @@ namespace MS.SyncFrame
         internal Type DataType { get; set; }
 
         [ProtoMember(2, DataFormat = DataFormat.ZigZag)]
-        internal long RequestId { get; set; }
+        internal int RequestId { get; set; }
 
         [ProtoMember(3)]
-        internal long DataSize { get; set; }
+        internal int DataSize { get; set; }
 
         [ProtoMember(4)]
         internal bool Faulted { get; set; }

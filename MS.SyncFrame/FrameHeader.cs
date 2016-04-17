@@ -13,6 +13,6 @@ namespace MS.SyncFrame
     internal class FrameHeader
     {
         [ProtoMember(1)]
-        internal ICollection<long> MessageSizes { get; set; }
+        internal ICollection<int> MessageSizes { get; set; }
     }
 }

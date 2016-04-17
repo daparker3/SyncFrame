@@ -17,7 +17,7 @@ namespace MS.SyncFrame
             this.NewSegmentSize = 1 << 20;
         }
 
-        internal long NewSegmentSize
+        internal int NewSegmentSize
         {
             get;
             set;

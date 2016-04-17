@@ -17,14 +17,14 @@ namespace MS.SyncFrame
     {
         private static readonly int SizeOfChunkBag = Marshal.SizeOf(typeof(ConcurrentBag<QueuedResponseChunk>));
         private ConcurrentDictionary<Type, ChunkCollection> pendingResponsesByType = new ConcurrentDictionary<Type, ChunkCollection>();
-        private long bufferSize;
+        private int bufferSize;
         private AutoResetEvent responseCompleteEvent = new AutoResetEvent(false);
         private bool disposed = false;
 
         internal ConcurrentResponseBuffer()
         {
             this.BufferUse = 0;
-            this.BufferSize = long.MaxValue;
+            this.BufferSize = int.MaxValue;
         }
 
         ~ConcurrentResponseBuffer()
@@ -46,13 +46,13 @@ namespace MS.SyncFrame
             }
         }
 
-        internal long BufferUse
+        internal int BufferUse
         {
             get;
             private set;
         }
 
-        internal long BufferSize
+        internal int BufferSize
         {
             get
             {
