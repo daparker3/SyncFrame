@@ -30,6 +30,7 @@ namespace MS.SyncFrame
         private ConcurrentResponseBuffer responseBuffer = new ConcurrentResponseBuffer();
         private CancellationToken connectionClosedToken;
         private CancellationTokenRegistration connectionClosedTokenRegistration;
+        private PooledMemoryStreamManager pooledMemoryManager = new PooledMemoryStreamManager();
         private long maxFrameSize = 0;
         private long currentRequest = 0;
         private bool opened = false;
@@ -89,6 +90,31 @@ namespace MS.SyncFrame
             {
                 Ensure.That(value, "value").IsGte(0);
                 this.maxFrameSize = value;
+            }
+        }
+
+        /// <summary>
+        /// Gets or sets the maximum size of the buffer pool.
+        /// </summary>
+        /// <value>
+        /// The minimum size used when allocating new buffer.
+        /// </value>
+        /// <remarks>
+        /// The default value for buffer pool is 1 megabyte. 
+        /// The transport will try to allocate memory used for serialization from a buffer, periodically flushing it 
+        /// to enable garbage collection to work.
+        /// </remarks>
+        public long BufferPoolSize
+        {
+            get
+            {
+                return this.pooledMemoryManager.NewSegmentSize;
+            }
+
+            set
+            {
+                Ensure.That(value, "value").IsGte(0);
+                this.pooledMemoryManager.NewSegmentSize = value;
             }
         }
 
@@ -209,9 +235,9 @@ namespace MS.SyncFrame
         /// <exception cref="InvalidOperationException">Thrown if an invalid parameter is received.</exception>
         /// <exception cref="InternalBufferOverflowException">Thrown if the maximum frame size is too small to fit any request.</exception>
         /// <remarks>
-        /// If you try to send a message of type <typeparamref name="{TRequest}"/> without the transport on the other side of the connection having called
-        /// <see cref="ReceiveData{TResponse}()"/> first, the connection will close. Make sure you call <see cref="ReceiveData{TResponse}()"/> on the listener
-        /// at least once before opening the session.
+        /// If you try to send a message of type <typeparamref name="TRequest"/> without the transport on the other side of the connection ever calling
+        /// <see cref="ReceiveData{TResponse}()"/>, you may cause a buffer overflow on the transport receiving messages.
+        /// Make sure you call <see cref="ReceiveData{TResponse}()"/> periodically on the listener during the session.
         /// </remarks>
         public async Task<RequestResult> SendData<TRequest>(TRequest data) where TRequest : class
         {
@@ -225,7 +251,7 @@ namespace MS.SyncFrame
         /// <returns>A <see cref="Task{Result}"/> which completes with a <see cref="TypedResult{TResult}"/> when the data is available.</returns>
         /// <exception cref="InvalidOperationException">Thrown if an invalid parameter is received.</exception>
         /// <remarks>
-        /// You must call this method on each type of message you want to receive at least once before opening your connection.
+        /// Neglecting to call this method on a message type which is being sent on the other end could result in an unrecoverable memory leak.
         /// See the remarks for <see cref="SendData{TRequest}(TRequest)"/> for more information.
         /// </remarks>
         public async Task<TypedResult<TResponse>> ReceiveData<TResponse>() where TResponse : class
@@ -241,10 +267,6 @@ namespace MS.SyncFrame
         /// <returns>A <see cref="Task{Result}"/> which completes with a <see cref="TypedResult{TResult}"/> when the data is available.</returns>
         /// <exception cref="InvalidOperationException">Thrown if an invalid parameter is received.</exception>
         /// <exception cref="OperationCanceledException">Occurs if the operation was canceled.</exception>
-        /// <remarks>
-        /// You must call this method on each type of message you want to receive at least once before opening your connection.
-        /// See the remarks for <see cref="SendData{TRequest}(TRequest)"/> for more information.
-        /// </remarks>
         public async Task<TypedResult<TResponse>> ReceiveData<TResponse>(CancellationToken token) where TResponse : class
         {
             QueuedResponseChunk qrc = await this.responseBuffer.DequeueResponse(typeof(TResponse), token);
@@ -316,12 +338,12 @@ namespace MS.SyncFrame
             Ensure.That(request, "result").IsNotNull();
             Ensure.That(data, "data").IsNotNull();
             RequestResult requestResult = new RequestResult(this, request.RequestId);
-            QueuedRequestChunk qrc = new QueuedRequestChunk();
+            QueuedRequestChunk qrc = new QueuedRequestChunk(this.pooledMemoryManager.CreateStream());
             QueuedRequestResponseChunk responseChunk = null;
 
             if (!request.Remote)
             {
-                responseChunk = this.requestResponseBuffer.CreateResponse(request.RequestId);
+                responseChunk = this.requestResponseBuffer.CreateResponse(this.pooledMemoryManager.CreateStream(), request.RequestId);
                 requestResult.ResponseChunk = responseChunk;
             }
 
@@ -403,14 +425,13 @@ namespace MS.SyncFrame
                     }
                     else
                     {
-                        QueuedResponseChunk qrc = new QueuedResponseChunk();
+                        QueuedResponseChunk qrc = new QueuedResponseChunk(this.pooledMemoryManager.CreateStream());
                         await this.ReadHandler(sizesEnum.Current, header, qrc);
-                        if (!await this.responseBuffer.QueueResponse(header.DataType, qrc, this.ConnectionClosedToken))
-                        {
-                            throw new InvalidOperationException(Resources.NoSuchRequest);
-                        }
+                        await this.responseBuffer.QueueResponse(header.DataType, qrc, this.ConnectionClosedToken);
                     }
                 }
+
+                this.pooledMemoryManager.Flush();
             }
             catch (Exception)
             {
@@ -494,8 +515,11 @@ namespace MS.SyncFrame
 
         private async Task ReadHandler(long messageSize, MessageHeader header, QueuedResponseChunk qrc)
         {
+            long toRead = messageSize - header.DataSize;
+            qrc.DataStream.SetLength(toRead);
+
             // Cool. We can dispatch this request.
-            await this.RemoteStream.CopyToAsync(qrc.DataStream, (int)(messageSize - header.DataSize));
+            await this.RemoteStream.CopyToAsync(qrc.DataStream, (int)toRead);
             qrc.Complete();
         }
 

@@ -24,7 +24,6 @@
     <copyright>Copyright (c) MS 2016</copyright>
     <dependencies>
         <group targetFramework="net452">
-          <dependency id="log4net" version="1.2.10" />
           <dependency id="Ensure.That" version="4.0.0" />
           <dependency id="protobuf-net" version="2.0.0.668" />
         </group>

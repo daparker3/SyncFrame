@@ -6,10 +6,16 @@
 
 namespace MS.SyncFrame
 {
+    using System.IO;
     using System.Threading.Tasks;
 
     internal class QueuedRequestResponseChunk : QueuedResponseChunk
     {
+        internal QueuedRequestResponseChunk(Stream dataStream)
+            : base(dataStream)
+        {
+        }
+
         internal Task PostCompleteTask
         {
             get;

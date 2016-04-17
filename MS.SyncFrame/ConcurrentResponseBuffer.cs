@@ -72,18 +72,12 @@ namespace MS.SyncFrame
             GC.SuppressFinalize(this);
         }
 
-        internal async Task<bool> QueueResponse(Type responseType, QueuedResponseChunk qrc, CancellationToken responseCanceledToken)
+        internal async Task QueueResponse(Type responseType, QueuedResponseChunk qrc, CancellationToken responseCanceledToken)
         {
-            ChunkCollection chunkBag = await this.GetChunkBag(responseType, responseCanceledToken, false);
-            if (chunkBag != null)
-            {
-                int responseSize = Marshal.SizeOf(typeof(QueuedResponseChunk)) + Marshal.SizeOf(responseType);
-                this.ReleaseBuffer(responseSize);
-                chunkBag.QueueChunk(qrc);
-                return true;
-            }
-
-            return false;
+            ChunkCollection chunkBag = await this.GetChunkBag(responseType, responseCanceledToken, true);
+            int responseSize = Marshal.SizeOf(typeof(QueuedResponseChunk)) + Marshal.SizeOf(responseType);
+            this.ReleaseBuffer(responseSize);
+            chunkBag.QueueChunk(qrc);
         }
 
         internal async Task<QueuedResponseChunk> DequeueResponse(Type responseType, CancellationToken responseCanceledToken)

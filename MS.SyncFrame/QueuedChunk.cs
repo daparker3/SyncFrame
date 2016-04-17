@@ -13,15 +13,20 @@ namespace MS.SyncFrame
     internal class QueuedChunk : IDisposable
     {
         private TaskCompletionSource<bool> completeTask = new TaskCompletionSource<bool>();
-        private MemoryStream dataStream = new MemoryStream();
+        private Stream dataStream;
         private bool disposed = false;
+
+        internal QueuedChunk(Stream dataStream)
+        {
+            this.dataStream = dataStream;
+        }
 
         ~QueuedChunk()
         {
             this.Dispose(false);
         }
 
-        internal MemoryStream DataStream
+        internal Stream DataStream
         {
             get
             {

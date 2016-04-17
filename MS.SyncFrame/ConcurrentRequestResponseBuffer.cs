@@ -8,6 +8,7 @@ namespace MS.SyncFrame
 {
     using System;
     using System.Collections.Concurrent;
+    using System.IO;
     using System.Threading.Tasks;
     using Properties;
 
@@ -23,7 +24,7 @@ namespace MS.SyncFrame
             }
         }
 
-        internal QueuedRequestResponseChunk CreateResponse(long requestId)
+        internal QueuedRequestResponseChunk CreateResponse(Stream dataStream, long requestId)
         {
             if (this.pendingResponsesByRequest.ContainsKey(requestId))
             {
@@ -31,7 +32,7 @@ namespace MS.SyncFrame
             }
 
             // This request originates from us; set up our response handler.
-            QueuedRequestResponseChunk responseChunk = new QueuedRequestResponseChunk();
+            QueuedRequestResponseChunk responseChunk = new QueuedRequestResponseChunk(dataStream);
 
             //// To prevent the response chunk going out of scope before the user can get it, we reference it in our
             //// return value. That way, if it actually does go out of scope we can catch it with a runtime error.

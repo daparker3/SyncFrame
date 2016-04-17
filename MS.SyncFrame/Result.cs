@@ -9,9 +9,9 @@ namespace MS.SyncFrame
     using System;
     using System.IO;
     using System.Reflection;
+    using System.Runtime.InteropServices;
     using System.Threading.Tasks;
     using EnsureThat;
-    using Properties;
     using ProtoBuf;
 
     /// <summary>
@@ -129,6 +129,8 @@ namespace MS.SyncFrame
                 header.DataType = value.GetType();
             }
 
+            long toWrite = Marshal.SizeOf(header) + Marshal.SizeOf(value);
+            s.SetLength(toWrite);
             Serializer.Serialize(s, header);
             if (value != null)
             {
