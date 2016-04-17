@@ -12,7 +12,7 @@
     <date>
       <para>3/21/2016</para>
     </date>
-
+      
     <summarySection>
       <content>
         <para>This document outlines a method for efficient message streaming using sync frames and makes a case for why it’s a practical solution to sustaining a high bandwidth message exchanges in an environment where low latency is required. </para>
@@ -23,6 +23,7 @@
       <autoOutline />
 
       <para>This document outlines a method for efficient message streaming using sync frames and makes a case for why it’s a practical solution to sustaining a high bandwidth message exchanges in an environment where low latency is required. Examples will be provided in C#, although interoperability with C++ will also be addressed by selecting a portable method for binary serialization. We’ll try to establish and follow general guidelines for writing performant code, but focus on the Microsoft implementations of libraries and protocol layers for specific examples. Our focus is on writing a platform-agnostic (e.g. portable C#, and not built on “web services”, such as Azure or AWS) library that can efficiently stream multiple messages to and from a server in a single TCP/IP session.</para>
+      <para>Please refer to the API documentation for examples of how to do specific things, rather than this document.</para>
     </introduction>
 
     <!-- Add one or more top-level section elements.  These are collapsible.
