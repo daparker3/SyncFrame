@@ -464,7 +464,7 @@ namespace MS.SyncFrame
                     long toWrite = chunk.DataStream.Length;
                     if (written + toWrite > max)
                     {
-                        if (written == sizeof(long))
+                        if (written == 0)
                         {
                             // Uh oh, we can't write this chunk. 
                             throw new InternalBufferOverflowException();
