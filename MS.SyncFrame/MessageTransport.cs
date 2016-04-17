@@ -208,6 +208,11 @@ namespace MS.SyncFrame
         /// <returns>A <see cref="Task{Result}"/> which completes with a <see cref="Result"/> when sent.</returns>
         /// <exception cref="InvalidOperationException">Thrown if an invalid parameter is received.</exception>
         /// <exception cref="InternalBufferOverflowException">Thrown if the maximum frame size is too small to fit any request.</exception>
+        /// <remarks>
+        /// If you try to send a message of type <typeparamref name="{TRequest}"/> without the transport on the other side of the connection having called
+        /// <see cref="ReceiveData{TResponse}()"/> first, the connection will close. Make sure you call <see cref="ReceiveData{TResponse}()"/> on the listener
+        /// at least once before opening the session.
+        /// </remarks>
         public async Task<RequestResult> SendData<TRequest>(TRequest data) where TRequest : class
         {
             return await this.SendData(this.CreateResult(), data, false);
@@ -219,6 +224,10 @@ namespace MS.SyncFrame
         /// <typeparam name="TResponse">The type of the response.</typeparam>
         /// <returns>A <see cref="Task{Result}"/> which completes with a <see cref="TypedResult{TResult}"/> when the data is available.</returns>
         /// <exception cref="InvalidOperationException">Thrown if an invalid parameter is received.</exception>
+        /// <remarks>
+        /// You must call this method on each type of message you want to receive at least once before opening your connection.
+        /// See the remarks for <see cref="SendData{TRequest}(TRequest)"/> for more information.
+        /// </remarks>
         public async Task<TypedResult<TResponse>> ReceiveData<TResponse>() where TResponse : class
         {
             return await this.ReceiveData<TResponse>(CancellationToken.None);
@@ -232,6 +241,10 @@ namespace MS.SyncFrame
         /// <returns>A <see cref="Task{Result}"/> which completes with a <see cref="TypedResult{TResult}"/> when the data is available.</returns>
         /// <exception cref="InvalidOperationException">Thrown if an invalid parameter is received.</exception>
         /// <exception cref="OperationCanceledException">Occurs if the operation was canceled.</exception>
+        /// <remarks>
+        /// You must call this method on each type of message you want to receive at least once before opening your connection.
+        /// See the remarks for <see cref="SendData{TRequest}(TRequest)"/> for more information.
+        /// </remarks>
         public async Task<TypedResult<TResponse>> ReceiveData<TResponse>(CancellationToken token) where TResponse : class
         {
             QueuedResponseChunk qrc = await this.responseBuffer.DequeueResponse(typeof(TResponse), token);

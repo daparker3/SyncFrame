@@ -12,18 +12,17 @@
     <date>
       <para>3/21/2016</para>
     </date>
-      
+
     <summarySection>
       <content>
-        <para>This document outlines a method for efficient message streaming using sync frames and makes a case for why it’s a practical solution to sustaining a high bandwidth message exchanges in an environment where low latency is required. </para>
+        <para>This document outlines a method for efficient message streaming on networks where low latency is paramount by grouping messages into periodic frames. </para>
       </content>
     </summarySection>
 
     <introduction>
       <autoOutline />
 
-      <para>This document outlines a method for efficient message streaming using sync frames and makes a case for why it’s a practical solution to sustaining a high bandwidth message exchanges in an environment where low latency is required. Examples will be provided in C#, although interoperability with C++ will also be addressed by selecting a portable method for binary serialization. We’ll try to establish and follow general guidelines for writing performant code, but focus on the Microsoft implementations of libraries and protocol layers for specific examples. Our focus is on writing a platform-agnostic (e.g. portable C#, and not built on “web services”, such as Azure or AWS) library that can efficiently stream multiple messages to and from a server in a single TCP/IP session.</para>
-      <para>Please refer to the API documentation for examples of how to do specific things, rather than this document.</para>
+      <para>This document outlines a method for efficient message streaming on networks where low latency is paramount by grouping messages into periodic frames. Examples will be provided in C#, although interoperability with C++ will also be addressed by selecting a portable method for binary serialization. We’ll try to establish and follow general guidelines for writing performant code, but focus on the Microsoft implementations of libraries and protocol layers for specific examples. Our focus is on writing a platform-agnostic (e.g. portable C#, and not built on “web services”, such as Azure or AWS) library that can efficiently stream multiple messages to and from a server in a single TCP/IP session.</para>
     </introduction>
 
     <!-- Add one or more top-level section elements.  These are collapsible.
@@ -32,7 +31,7 @@
     <section address="Section1">
       <title>Application-Level Concurrency in Windows</title>
       <content>
-        <para>With multi-core processors being a common way to achieve higher processing power, it’s a good idea to build applications that can utilize thread pooling . In this case, thread pooling should be taken to mean any scheme which avoids thread creation overhead by reusing threads out of a pool. There are various other asynchronous mechanisms in Windows, such as IO completion ports which can be used to avoid the overhead associated with creating extra threads by removing thread blocking patterns from code. Both the Default TaskScheduler  for the Task Parallel Library in C#, and the C++ Microsoft implementation of std::async library can utilize thread pools (in current Visual Studio CRT releases, std::async’s async future implementation is built on top of ConcRT, which reuses threads.). </para>
+        <para>With multi-core processors being a common way to achieve higher processing power, it’s a good idea to build applications that can utilize thread pooling. In this case, thread pooling could be taken to mean any scheme which avoids thread creation overhead by reusing threads out of a pool. There are various other asynchronous mechanisms in Windows, such as IO completion ports which can be used to avoid the overhead associated with creating extra threads by removing thread blocking patterns from code. Both the Default TaskScheduler  for the Task Parallel Library in C#, and the C++ Microsoft implementation of std::async library can utilize thread pools (in current Visual Studio CRT releases, std::async’s async future implementation is built on top of ConcRT, which reuses threads.). </para>
         <para>Both the std::async library and the TPL support concurrency programming through continuations. Continuations allow a single thread of execution to be broken up and evaluated across multiple threads as method results, such as IO completion, or long-running computations from other tasks, become available. Since continuation results can be passed between threads without being evaluated, and each part of a continuation is treated as a single method body, it’s easy to write code that takes advantage of multiple cores using continuations.  The async/await keywords added to C# 4.5 also make it easy to write concurrent code based on multiple continuations while masking the underlying TPL code.</para>
       </content>
     </section>

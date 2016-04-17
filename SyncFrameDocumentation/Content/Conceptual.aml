@@ -5,8 +5,8 @@
     xmlns:xlink="http://www.w3.org/1999/xlink">
 
     <introduction>
-      <para>SyncFrame provides a library for efficient message streaming using sync frames which are built on top of protocol buffers. 
-      It provides for a one way, bidirectional request-response paradigm, and allows a configurable request intervals as well as message fragmentation. 
+      <para>SyncFrame provides a library for efficient message streaming across TCP/IP networks. 
+      It provides for one way, bidirectional or unidirectional messaging, and allows for configurable request intervals as well as message fragmentation. 
       For more information, please see the white-paper or API documentation.</para>
     </introduction>
 

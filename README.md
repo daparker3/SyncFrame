@@ -1,2 +1,2 @@
 # SyncFrame
-SyncFrame provides a library for efficient message streaming across networks. Please see under the [Help](https://github.com/daparker3/SyncFrame/tree/master/Help) folder for project documentation.
+SyncFrame provides a library for efficient message streaming using sync frames which are built on top of protocol buffers. More information, including API documentation, is available on the wiki.
