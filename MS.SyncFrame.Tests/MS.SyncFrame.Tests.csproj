@@ -53,9 +53,6 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="ConcurrentRequestBufferTest.cs" />
-    <Compile Include="ConcurrentRequestResponseBufferTest.cs" />
-    <Compile Include="ConcurrentResponseBufferTest.cs" />
     <Compile Include="FaultExceptionTFaultTest.cs" />
     <Compile Include="MessageClientTests.cs" />
     <Compile Include="MessageServerTests.cs" />
