@@ -131,7 +131,7 @@ namespace MS.SyncFrame
             Contract.Requires(value >= 0);
             Contract.Ensures(this.Length == value);
             ArraySegment<byte> newRoot = this.manager.AllocateMemory(value);
-            if (this.root != null)
+            if (this.root.Array != null)
             {
                 int toCopy = this.root.Count;
                 if (toCopy > value)
@@ -155,19 +155,19 @@ namespace MS.SyncFrame
             Contract.Requires(offset > 0);
             Contract.Requires(offset < buffer.Length);
             Contract.Requires(count < buffer.Length - offset);
+            Contract.Ensures(this.Position == (int)this.Position);
             if (count > 0)
             {
                 Contract.Ensures(this.Position > 0);
             }
 
-            long toWrite = this.Length - this.Position;
-            if (toWrite > count)
+            if (this.Position + count > this.Length)
             {
-                toWrite = count;
+                this.SetLength(this.Position + count);
             }
 
-            Buffer.BlockCopy(buffer, offset, this.root.Array, this.root.Offset + (int)this.Position, (int)toWrite);
-            this.Position += toWrite;
+            Buffer.BlockCopy(buffer, offset, this.root.Array, this.root.Offset + (int)this.Position, count);
+            this.Position += count;
         }
 
         protected override void Dispose(bool disposing)

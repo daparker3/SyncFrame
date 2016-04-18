@@ -9,10 +9,9 @@ namespace MS.SyncFrame
     using System;
     using System.Diagnostics.Contracts;
     using System.IO;
+    using System.Linq;
     using System.Reflection;
-    using System.Runtime.InteropServices;
     using System.Threading.Tasks;
-    using EnsureThat;
     using ProtoBuf;
 
     /// <summary>
@@ -20,8 +19,8 @@ namespace MS.SyncFrame
     /// </summary>
     public class Result
     {
-        private static MethodInfo serializeMethod = typeof(Serializer).GetMethod("Serialize");
-        private static MethodInfo deserializeMethod = typeof(Serializer).GetMethod("Deserialize");
+        private static MethodInfo serializeMethod = typeof(Serializer).GetMethods().Where((mi) => mi.Name == "Serialize").First();
+        private static MethodInfo deserializeMethod = typeof(Serializer).GetMethods().Where((mi) => mi.Name == "Deserialize").First();
         private MessageTransport localTransport;
         private int requestId;
         private bool remote;
@@ -89,30 +88,6 @@ namespace MS.SyncFrame
             }
         }
 
-        /// <summary>
-        /// Faults this request.
-        /// </summary>
-        /// <typeparam name="TFault">The type of the fault.</typeparam>
-        /// <param name="fault">The fault.</param>
-        /// <returns>A <see cref="Task{FaultException}"/> which contains information about the fault and can be thrown to terminate the session.</returns>
-        public async Task<FaultException<TFault>> Fault<TFault>(TFault fault) where TFault : class
-        {
-            Contract.Requires(fault != null);
-            FaultException<TFault> ret = new FaultException<TFault>(this, fault);
-            if (this.LocalTransport != null)
-            {
-                if (this.Remote)
-                {
-                    // We're responding to a remote request, but our response generated a fault. Send the fault back to the remote.
-                    await this.LocalTransport.SendData(this, fault, true);
-                }
-
-                this.LocalTransport.SetFault(ret);
-            }
-
-            return ret;
-        }
-
         internal void Write<T>(Stream s, T value, bool isFault, bool isResponse) where T : class
         {
             Contract.Requires(s != null);
@@ -125,16 +100,12 @@ namespace MS.SyncFrame
             };
 
             header.DataType = value.GetType();
-            long toWrite = Marshal.SizeOf(header) + Marshal.SizeOf(value);
-            s.SetLength(toWrite);
-            Serializer.Serialize(s, header);
+            Serializer.SerializeWithLengthPrefix(s, header, PrefixStyle.Base128);
             if (value != null)
             {
                 int start = (int)s.Position;
                 Serializer.Serialize(s, value);
                 s.Position = start;
-                header.DataSize = start;
-                Contract.Assert(s.Position == (int)header.DataSize);
             }
         }
     }

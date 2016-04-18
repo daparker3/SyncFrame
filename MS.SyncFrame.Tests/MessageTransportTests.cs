@@ -1,6 +1,8 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
 using MS.SyncFrame;
 using System;
+using System.Net;
+using System.Net.Sockets;
 using System.IO;
 using System.Collections.Generic;
 using System.Linq;
@@ -15,7 +17,10 @@ namespace MS.SyncFrame.Tests
     public class MessageTransportTests
     {
         CancellationTokenSource cts;
-        Stream testStream;
+        TcpListener server;
+        TcpClient client;
+        Stream serverStream;
+        Stream clientStream;
         TestTransport outTransport;
         TestTransport inTransport;
 
@@ -61,18 +66,14 @@ namespace MS.SyncFrame.Tests
                 }
             }
 
-            public void Sync(bool isOutTransport)
+            public async Task SyncWrite()
             {
-                if (isOutTransport)
-                {
-                    WriteMessages().Wait();
-                    ReadMessages().Wait();
-                }
-                else
-                {
-                    ReadMessages().Wait();
-                    WriteMessages().Wait();
-                }
+                await WriteMessages();
+            }
+
+            public async Task SyncRead()
+            {
+                await ReadMessages();
             }
         }
         public TestContext TestContext
@@ -84,10 +85,15 @@ namespace MS.SyncFrame.Tests
         [TestInitialize]
         public void MessageTransportTests_TestInitialize()
         {
-            testStream = new MemoryStream();
+            server = new TcpListener(IPAddress.Loopback, 60000);
+            server.Start();
+            client = new TcpClient();
+            client.Connect(new IPEndPoint(IPAddress.Loopback, 60000));
             cts = new CancellationTokenSource();
-            outTransport = new TestTransport(testStream, cts.Token);
-            inTransport = new TestTransport(testStream, cts.Token);
+            serverStream = client.GetStream();
+            clientStream = server.AcceptTcpClient().GetStream();
+            outTransport = new TestTransport(clientStream, cts.Token);
+            inTransport = new TestTransport(serverStream, cts.Token);
         }
 
         [TestCleanup]
@@ -105,10 +111,16 @@ namespace MS.SyncFrame.Tests
                 inTransport = null;
             }
 
-            if (testStream != null)
+            if (client != null)
             {
-                testStream.Dispose();
-                testStream = null;
+                client.Close();
+                client = null;
+            }
+
+            if (server != null)
+            {
+                server.Stop();
+                server = null;
             }
 
             if (cts != null)
@@ -116,6 +128,28 @@ namespace MS.SyncFrame.Tests
                 cts.Dispose();
                 cts = null;
             }
+        }
+
+        [TestMethod()]
+        public void MessageTransportTests_ProtobufReadWriteTest()
+        {
+            FrameHeader frameHeader = new FrameHeader();
+            frameHeader.MessageSizes = new int[] { 1 };
+            Serializer.SerializeWithLengthPrefix(clientStream, frameHeader, PrefixStyle.Base128);
+            FrameHeader frameHeader2 = Serializer.DeserializeWithLengthPrefix<FrameHeader>(serverStream, PrefixStyle.Base128);
+            Assert.AreEqual(frameHeader.MessageSizes.Length, frameHeader2.MessageSizes.Length);
+            Assert.AreEqual(frameHeader.MessageSizes[0], frameHeader2.MessageSizes[0]);
+            MessageHeader messageHeader = new MessageHeader();
+            messageHeader.DataType = typeof(object);
+            messageHeader.Faulted = false;
+            messageHeader.RequestId = 2;
+            messageHeader.Response = true;
+            Serializer.SerializeWithLengthPrefix(clientStream, messageHeader, PrefixStyle.Base128);
+            MessageHeader messageHeader2 = Serializer.DeserializeWithLengthPrefix<MessageHeader>(serverStream, PrefixStyle.Base128);
+            Assert.AreEqual(messageHeader.DataType, messageHeader2.DataType);
+            Assert.AreEqual(messageHeader.Faulted, messageHeader2.Faulted);
+            Assert.AreEqual(messageHeader.RequestId, messageHeader2.RequestId);
+            Assert.AreEqual(messageHeader.Response, messageHeader2.Response);
         }
 
         [TestMethod()]
@@ -127,61 +161,66 @@ namespace MS.SyncFrame.Tests
 
         [TestMethod()]
         [TestProperty("NumIterations", "1")]
-        public void MessageTransportTests_SendRecieveDataTest()
+        public async Task MessageTransportTests_SendRecieveDataTest()
         {
-            outTransport.Open().Wait();
-            inTransport.Open().Wait();
+            await outTransport.Open();
+            await inTransport.Open();
 
             int numIterations = int.Parse((string)TestContext.Properties["NumIterations"]);
             for (int i = 0; i < numIterations; ++i)
             {
                 Message msg = new Message { Data = i };
-                outTransport.SendData(msg).Wait();
-                outTransport.Sync(true);
-                Task<TypedResult<Message>> inMsg = inTransport.ReceiveData<Message>();
-                inTransport.Sync(false);
-                Assert.AreEqual(msg.Data, inMsg.Result.Data.Data);
+                RequestResult clientRequest = await outTransport.SendData(msg);
+                await StepWrite();
+                TypedResult<Message> serverRequest = await inTransport.ReceiveData<Message>();
+                await StepRead();
+                Assert.AreEqual(msg.Data, serverRequest.Data.Data);
+                Assert.AreEqual(clientRequest.RequestId, serverRequest.RequestId);
             }
         }
 
         [TestMethod()]
         [TestProperty("NumIterations", "1")]
-        public void MessageTransportTests_SendRecieveMessageTest()
+        public async Task MessageTransportTests_SendRecieveMessageTest()
         {
-            outTransport.Open().Wait();
-            inTransport.Open().Wait();
+            await outTransport.Open();
+            await inTransport.Open();
 
             int numIterations = int.Parse((string)TestContext.Properties["NumIterations"]);
             for (int i = 0; i < numIterations; ++i)
             {
                 Message request = new Message { Data = i };
-                Task<TypedResult<Message>> responseTask = outTransport.SendData(request).ReceiveData<Message>();
-                outTransport.Sync(true);
-                Task requestTask = inTransport.ReceiveData<Message>().SendData(request);
-                inTransport.Sync(false);
-                requestTask.Wait();
-                Message response = responseTask.Result.Data;
-                Assert.AreEqual(request.Data, response.Data);
+                Task<RequestResult> clientRequest = outTransport.SendData(request);
+                await StepWrite();
+                await clientRequest;
+                TypedResult<Message> serverRequest = await inTransport.ReceiveData<Message>();
+                await serverRequest.SendData(request);
+                await StepRead();
+               TypedResult<Message> response = await clientRequest.ReceiveData<Message>();
+                Assert.AreEqual(request.Data, response.Data.Data);
+                Assert.AreEqual(clientRequest.Result.RequestId, serverRequest.RequestId);
+                Assert.AreEqual(clientRequest.Result.RequestId, response.RequestId);
             }
         }
 
         [TestMethod()]
-        public void MessageTransportTests_OnFaultTest()
+        public async Task MessageTransportTests_OnFaultTest()
         {
-            outTransport.Open().Wait();
-            inTransport.Open().Wait();
+            await outTransport.Open();
+            await inTransport.Open();
 
             Message request = new Message { Data = -1 };
-            Task<Task> faultMessageTask = outTransport.OnFault();
-            Task<TypedResult<Message>> responseTask = outTransport.SendData(request).ReceiveData<Message>();
-            outTransport.Sync(true);
-            Task requestTask = inTransport.ReceiveData<Message>()
-                                          .ContinueWith(async (t) => { throw await t.Fault(t.Result.Data); });
-            inTransport.Sync(false);
-            requestTask.Wait();
+            Task<RequestResult> clientRequest = outTransport.SendData(request);
+            await StepWrite();
+            await clientRequest;
+            TypedResult<Message> serverRequest = await inTransport.ReceiveData<Message>();
+            FaultException<Message> faultEx = await serverRequest.SendFault(request);
+            Assert.IsNotNull(faultEx);
+            await StepRead();
+
             try
             {
-                Message response = responseTask.Result.Data;
+                await clientRequest.ReceiveData<Message>();
                 Assert.Fail();
             }
             catch (AggregateException ex)
@@ -193,20 +232,7 @@ namespace MS.SyncFrame.Tests
 
             try
             {
-                Message response = responseTask.Result.Data;
-                Assert.Fail();
-            }
-            catch (AggregateException ex)
-            {
-                Assert.IsTrue(ex.InnerException is FaultException<Message>);
-                Message result = ((FaultException<Message>)ex.InnerException).Fault;
-                Assert.AreEqual(request.Data, result.Data);
-            }
-
-            Task faultTask = faultMessageTask.Result;
-            try
-            {
-                faultTask.Wait();
+                await outTransport.OnFault();
                 Assert.Fail();
             }
             catch (AggregateException ex)
@@ -221,14 +247,14 @@ namespace MS.SyncFrame.Tests
         }
 
         [TestMethod()]
-        public void MessageTransportTests_CloseTest()
+        public async Task MessageTransportTests_CloseTest()
         {
             Assert.IsFalse(outTransport.IsConnectionOpen);
             Assert.IsFalse(inTransport.IsConnectionOpen);
             Task outSessionTask = outTransport.Open();
             Task inSessionTask = inTransport.Open();
-            outSessionTask.Wait();
-            inSessionTask.Wait();
+            await outSessionTask;
+            await inSessionTask;
             Assert.IsTrue(inTransport.IsConnectionOpen);
             Assert.IsTrue(outTransport.IsConnectionOpen);
             cts.Cancel();
@@ -241,6 +267,22 @@ namespace MS.SyncFrame.Tests
         {
             [ProtoMember(1)]
             internal int Data { get; set; }
+        }
+
+        private async Task StepWrite()
+        {
+            Task outSyncTask = outTransport.SyncWrite();
+            Task inSyncTask = inTransport.SyncRead();
+            await outSyncTask;
+            await inSyncTask;
+        }
+
+        private async Task StepRead()
+        {
+            Task inSyncTask = inTransport.SyncWrite();
+            Task outSyncTask = outTransport.SyncRead();
+            await inSyncTask;
+            await outSyncTask;
         }
     }
 }

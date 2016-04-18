@@ -51,7 +51,7 @@ namespace MS.SyncFrame.Tests
         [TestProperty("ResponseSize", "100")]
         [TestProperty("FrameDelay", "100")]
         [TestProperty("NumRequests", "100")]
-        public void MessageClientTests_CreateClientSessionTest()
+        public async Task MessageClientTests_CreateClientSessionTest()
         {
             int responseSize = int.Parse((string)TestContext.Properties["ResponseSize"]);
             Task listenTask = CreateListenTask(sessionStream, responseSize);
@@ -76,48 +76,42 @@ namespace MS.SyncFrame.Tests
                     byte[] requestData = new byte[requestSize];
                     r.NextBytes(requestData);
                     Message requestMessage = new Message { Data = requestData };
-                    Message responseMessage = client.SendData(requestMessage)
-                                                    .ReceiveData<Message>()
-                                                    .Complete().Result;
+                    Message responseMessage = await client.SendData(requestMessage)
+                                                          .ReceiveData<Message>()
+                                                          .Complete();
                     Assert.IsNotNull(responseMessage);
                     Assert.AreEqual(responseSize, responseMessage.Data.Length);
                 }
 
                 cts.Cancel();
-                sessionTask.Wait();
+                await sessionTask;
                 Assert.IsFalse(client.IsConnectionOpen);
             }
-            listenTask.Wait();
+
+            await listenTask;
         }
 
-        static Task CreateListenTask(Stream clientStream, int responseSize)
+        static async Task CreateListenTask(Stream clientStream, int responseSize)
         {
-            return Task.Factory.StartNew(async () =>
+            Random r = new Random();
+            using (CancellationTokenSource cts = new CancellationTokenSource())
+            using (MessageServer server = new MessageServer(clientStream, cts.Token))
             {
-                Random r = new Random();
-                using (CancellationTokenSource cts = new CancellationTokenSource())
-                using (MessageServer server = new MessageServer(clientStream, cts.Token))
+                List<Task> sendTasks = new List<Task>();
+                Task sessionTask = server.Open();
+
+                while (server.IsConnectionOpen)
                 {
-                    List<Task> sendTasks = new List<Task>();
-                    Task sessionTask = server.Open();
-
-                    while (server.IsConnectionOpen)
-                    {
-                        await server.ReceiveData<Message>()
-                            .ContinueWith((t) =>
-                            {
-                                byte[] responseData = new byte[responseSize];
-                                r.NextBytes(responseData);
-                                Message m = new Message { Data = responseData };
-                                return t.SendData(m);
-                            }).Unwrap()
-                            .Complete();
-                    }
-
-                    cts.Cancel();
-                    await sessionTask;
+                    TypedResult<Message> request = await server.ReceiveData<Message>();
+                    byte[] responseData = new byte[responseSize];
+                    r.NextBytes(responseData);
+                    Message m = new Message { Data = responseData };
+                    await request.SendData(m);
                 }
-            });
+
+                cts.Cancel();
+                await sessionTask;
+            }
         }
     }
 }

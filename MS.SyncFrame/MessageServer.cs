@@ -32,9 +32,8 @@ namespace MS.SyncFrame
     ///             {
     ///                 byte[] responseData = new byte[responseSize];
     ///                 r.NextBytes(responseData);
-    ///                 await server.ReceiveData<Message>()
-    ///                             .SendData(new Message { Data = responseData });
-    ///                             .Complete();
+    ///                 TypedResult<Message> request = await server.ReceiveData<Message>();
+    ///                 await request.SendData(new Message { Data = responseData });
     ///             }
     /// 
     ///             cts.Cancel();

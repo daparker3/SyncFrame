@@ -17,6 +17,14 @@ namespace MS.SyncFrame
         private int queueIndex;
         private bool isDequeing;
 
+        internal ConcurrentRequestBuffer()
+        {
+            for (int i = 0; i < this.queuedRequestChunks.Length; ++i)
+            {
+                this.queuedRequestChunks[i] = new ConcurrentBag<QueuedRequestChunk>();
+            }
+        }
+
         internal int Count
         {
             get

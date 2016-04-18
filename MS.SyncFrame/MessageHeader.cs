@@ -12,14 +12,11 @@ namespace MS.SyncFrame
     [ProtoContract]
     internal class MessageHeader
     {
-        [ProtoMember(1)]
-        internal Type DataType { get; set; }
-
         [ProtoMember(2, DataFormat = DataFormat.ZigZag)]
         internal int RequestId { get; set; }
 
-        [ProtoMember(3)]
-        internal int DataSize { get; set; }
+        [ProtoMember(1)]
+        internal Type DataType { get; set; }
 
         [ProtoMember(4)]
         internal bool Faulted { get; set; }

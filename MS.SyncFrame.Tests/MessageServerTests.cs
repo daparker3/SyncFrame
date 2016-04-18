@@ -51,7 +51,7 @@ namespace MS.SyncFrame.Tests
         [TestProperty("ResponseSize", "100")]
         [TestProperty("FrameDelay", "100")]
         [TestProperty("NumRequests", "100")]
-        public void MessageServerTests_CreateServerSessionTest()
+        public async Task MessageServerTests_CreateServerSessionTest()
         {
             int numRequests = int.Parse((string)TestContext.Properties["NumRequests"]);
             int requestSize = int.Parse((string)TestContext.Properties["RequestSize"]);
@@ -66,30 +66,25 @@ namespace MS.SyncFrame.Tests
                 Task sessionTask = server.Open();
                 Assert.IsTrue(server.IsConnectionOpen);
 
-                while (server.IsConnectionOpen)
-                {
-                    server.ReceiveData<Message>()
-                        .ContinueWith((t) =>
-                        {
-                            Assert.AreEqual(requestSize, t.Result.Data.Data.Length);
-                            // Do something with the message.
-                            byte[] responseData = new byte[responseSize];
-                            r.NextBytes(responseData);
-                            return t.SendData(new Message { Data = responseData });
-                        }).Unwrap().Complete().Wait();
+                for (int i = 0; i < numRequests; ++i)
+                { 
+                    TypedResult<Message> request = await server.ReceiveData<Message>();
+                    Assert.AreEqual(requestSize, request.Data.Data.Length);
+                    // Do something with the message.
+                    byte[] responseData = new byte[responseSize];
+                    r.NextBytes(responseData);
+                    await request.SendData(new Message { Data = responseData });
                 }
 
                 cts.Cancel();
-                sessionTask.Wait();
+                await sessionTask;
                 Assert.IsFalse(server.IsConnectionOpen);
             }
-            listenTask.Wait();
+            await listenTask;
         }
 
-        internal static Task CreateTransmitTask(Stream serverStream, TimeSpan frameDelay, int numRequests, int requestSize)
+        internal static async Task CreateTransmitTask(Stream serverStream, TimeSpan frameDelay, int numRequests, int requestSize)
         {
-            return Task.Factory.StartNew(async () =>
-            {
                 Random r = new Random();
 
                 using (CancellationTokenSource cts = new CancellationTokenSource())
@@ -112,7 +107,6 @@ namespace MS.SyncFrame.Tests
                     cts.Cancel();
                     await sessionTask;
                 }
-            });
         }
     }
 }

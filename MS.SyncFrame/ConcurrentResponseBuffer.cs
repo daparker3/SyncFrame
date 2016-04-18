@@ -16,7 +16,6 @@ namespace MS.SyncFrame
 
     internal class ConcurrentResponseBuffer : IDisposable
     {
-        private static readonly int SizeOfChunkBag = Marshal.SizeOf(typeof(ConcurrentBag<QueuedResponseChunk>));
         private ConcurrentDictionary<Type, ChunkCollection> pendingResponsesByType = new ConcurrentDictionary<Type, ChunkCollection>();
         private int bufferSize;
         private AutoResetEvent responseCompleteEvent = new AutoResetEvent(false);
@@ -77,19 +76,19 @@ namespace MS.SyncFrame
         {
             Contract.Requires(responseType != null);
             Contract.Requires(qrc != null);
-            ChunkCollection chunkBag = await this.GetChunkBag(responseType, responseCanceledToken, true);
-            int responseSize = Marshal.SizeOf(typeof(QueuedResponseChunk)) + Marshal.SizeOf(responseType);
-            this.ReleaseBuffer(responseSize);
+            Contract.Requires(qrc.DataStream.Length == (int)qrc.DataStream.Length);
+            ChunkCollection chunkBag = this.GetChunkBag(responseType, responseCanceledToken, true);
+            await this.ReserveBuffer((int)qrc.DataStream.Length, responseCanceledToken);
             chunkBag.QueueChunk(qrc);
         }
 
         internal async Task<QueuedResponseChunk> DequeueResponse(Type responseType, CancellationToken responseCanceledToken)
         {
             Contract.Requires(responseType != null);
-            ChunkCollection chunkBag = await this.GetChunkBag(responseType, responseCanceledToken, true);
-            int responseSize = Marshal.SizeOf(typeof(QueuedResponseChunk)) + Marshal.SizeOf(responseType);
-            await this.ReserveBuffer(responseSize, responseCanceledToken);
-            return await chunkBag.DequeueChunk(responseCanceledToken);
+            ChunkCollection chunkBag = this.GetChunkBag(responseType, responseCanceledToken, true);
+            QueuedResponseChunk chunk = await chunkBag.DequeueChunk(responseCanceledToken);
+            this.ReleaseBuffer((int)chunk.DataStream.Length);
+            return chunk;
         }
 
         internal void CancelResponses()
@@ -134,7 +133,7 @@ namespace MS.SyncFrame
             }
         }
 
-        private async Task<ChunkCollection> GetChunkBag(Type responseType, CancellationToken responseCanceledToken, bool createIfNotExist)
+        private ChunkCollection GetChunkBag(Type responseType, CancellationToken responseCanceledToken, bool createIfNotExist)
         {
             Contract.Requires(responseType != null);
             ChunkCollection chunkBag;
@@ -142,7 +141,6 @@ namespace MS.SyncFrame
             {
                 if (createIfNotExist)
                 {
-                    await this.ReserveBuffer(SizeOfChunkBag, responseCanceledToken);
                     chunkBag = new ChunkCollection();
                     if (!this.pendingResponsesByType.TryAdd(responseType, chunkBag))
                     {
@@ -160,7 +158,6 @@ namespace MS.SyncFrame
             Contract.Requires(bufSz > 0);
             Contract.Requires(bufSz <= this.BufferSize);
             Contract.Ensures(this.BufferUse <= this.BufferSize);
-
             this.BufferUse += bufSz;
             while (this.BufferUse > this.BufferSize)
             {
