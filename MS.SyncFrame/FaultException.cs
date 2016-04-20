@@ -21,16 +21,23 @@ namespace MS.SyncFrame
     [Serializable]
     public class FaultException<TFault> : Exception where TFault : class
     {
-        internal FaultException() : base(Resources.ASyncFaultOccured)
+        /// <summary>
+        /// Initializes a new instance of the <see cref="FaultException{TFault}"/> class.
+        /// </summary>
+        public FaultException() : base(Resources.ASyncFaultOccured)
         {
         }
 
-        internal FaultException(Result faultingRequest, TFault fault) 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="FaultException{TFault}"/> class.
+        /// </summary>
+        /// <param name="faultingRequest">The faulting request.</param>
+        /// <param name="fault">The fault.</param>
+        public FaultException(Result faultingRequest, TFault fault) 
             : base(Resources.ASyncFaultOccured) 
         {
             Contract.Requires(fault != null);
             Contract.Requires(faultingRequest != null);
-            Contract.Requires(faultingRequest.Remote);
             this.Request = faultingRequest;
             this.Fault = fault;
         }

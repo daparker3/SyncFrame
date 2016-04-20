@@ -160,7 +160,7 @@ namespace MS.SyncFrame.Tests
         }
 
         [TestMethod()]
-        [TestProperty("NumIterations", "1")]
+        [TestProperty("NumIterations", "10")]
         public async Task MessageTransportTests_SendRecieveDataTest()
         {
             await outTransport.Open();
@@ -170,8 +170,9 @@ namespace MS.SyncFrame.Tests
             for (int i = 0; i < numIterations; ++i)
             {
                 Message msg = new Message { Data = i };
-                RequestResult clientRequest = await outTransport.SendData(msg);
+                Task<RequestResult> clientRequestTask = outTransport.SendData(msg);
                 await StepWrite();
+                RequestResult clientRequest = await clientRequestTask;
                 TypedResult<Message> serverRequest = await inTransport.ReceiveData<Message>();
                 await StepRead();
                 Assert.AreEqual(msg.Data, serverRequest.Data.Data);
@@ -187,16 +188,17 @@ namespace MS.SyncFrame.Tests
             await inTransport.Open();
 
             int numIterations = int.Parse((string)TestContext.Properties["NumIterations"]);
-            for (int i = 0; i < numIterations; ++i)
+            for (int i = 10; i < numIterations; ++i)
             {
                 Message request = new Message { Data = i };
                 Task<RequestResult> clientRequest = outTransport.SendData(request);
                 await StepWrite();
                 await clientRequest;
                 TypedResult<Message> serverRequest = await inTransport.ReceiveData<Message>();
-                await serverRequest.SendData(request);
+                Task<Result> serverResponseTask = serverRequest.SendData(request);
                 await StepRead();
-               TypedResult<Message> response = await clientRequest.ReceiveData<Message>();
+                Result serverResponse = await serverResponseTask;
+                TypedResult<Message> response = await clientRequest.ReceiveData<Message>();
                 Assert.AreEqual(request.Data, response.Data.Data);
                 Assert.AreEqual(clientRequest.Result.RequestId, serverRequest.RequestId);
                 Assert.AreEqual(clientRequest.Result.RequestId, response.RequestId);
@@ -214,19 +216,19 @@ namespace MS.SyncFrame.Tests
             await StepWrite();
             await clientRequest;
             TypedResult<Message> serverRequest = await inTransport.ReceiveData<Message>();
-            FaultException<Message> faultEx = await serverRequest.SendFault(request);
-            Assert.IsNotNull(faultEx);
+            Task<FaultException<Message>> faultExTask = serverRequest.SendFault(request);
             await StepRead();
+            FaultException<Message> faultEx = await faultExTask;
+            Assert.IsNotNull(faultEx);
 
             try
             {
                 await clientRequest.ReceiveData<Message>();
                 Assert.Fail();
             }
-            catch (AggregateException ex)
+            catch (FaultException<Message> ex)
             {
-                Assert.IsTrue(ex.InnerException is FaultException<Message>);
-                Message result = ((FaultException<Message>)ex.InnerException).Fault;
+                Message result = ex.Fault;
                 Assert.AreEqual(request.Data, result.Data);
             }
 
@@ -235,10 +237,20 @@ namespace MS.SyncFrame.Tests
                 await outTransport.OnFault();
                 Assert.Fail();
             }
-            catch (AggregateException ex)
+            catch (FaultException<Message> ex)
             {
-                Assert.IsTrue(ex.InnerException is FaultException<Message>);
-                Message result = ((FaultException<Message>)ex.InnerException).Fault;
+                Message result = ex.Fault;
+                Assert.AreEqual(request.Data, result.Data);
+            }
+
+            try
+            {
+                await inTransport.OnFault();
+                Assert.Fail();
+            }
+            catch (FaultException<Message> ex)
+            {
+                Message result = ex.Fault;
                 Assert.AreEqual(request.Data, result.Data);
             }
 
@@ -271,18 +283,42 @@ namespace MS.SyncFrame.Tests
 
         private async Task StepWrite()
         {
-            Task outSyncTask = outTransport.SyncWrite();
-            Task inSyncTask = inTransport.SyncRead();
-            await outSyncTask;
-            await inSyncTask;
+            try
+            {
+                await outTransport.SyncWrite();
+            }
+            catch (Exception)
+            {
+
+            }
+            try
+            {
+                await inTransport.SyncRead();
+            }
+            catch (Exception)
+            {
+
+            }
         }
 
         private async Task StepRead()
         {
-            Task inSyncTask = inTransport.SyncWrite();
-            Task outSyncTask = outTransport.SyncRead();
-            await inSyncTask;
-            await outSyncTask;
+            try
+            {
+                await inTransport.SyncWrite();
+            }
+            catch (Exception)
+            {
+
+            }
+            try
+            {
+                await outTransport.SyncRead();
+            }
+            catch (Exception)
+            {
+
+            }
         }
     }
 }

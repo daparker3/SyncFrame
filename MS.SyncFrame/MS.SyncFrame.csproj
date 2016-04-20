@@ -79,7 +79,7 @@
     <Compile Include="QueuedResponseChunk.cs" />
     <Compile Include="RequestResult.cs" />
     <Compile Include="Result.cs" />
-    <Compile Include="ResultExtensionMethods.cs" />
+    <Compile Include="TaskResultExtensionMethods.cs" />
     <Compile Include="TypedResult.cs" />
     <Compile Include="WaitHandleExtensionMethods.cs" />
   </ItemGroup>

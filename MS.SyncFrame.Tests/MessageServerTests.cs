@@ -4,6 +4,8 @@ using System;
 using System.IO;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,7 +16,10 @@ namespace MS.SyncFrame.Tests
     [TestClass()]
     public class MessageServerTests
     {
-        Stream sessionStream;
+        TcpListener server;
+        TcpClient client;
+        Stream serverStream;
+        Stream clientStream;
 
         [ProtoContract]
         internal class Message
@@ -26,17 +31,27 @@ namespace MS.SyncFrame.Tests
         [TestInitialize]
         public void TestInitialize()
         {
-            sessionStream = new MemoryStream();
+            server = new TcpListener(IPAddress.Loopback, 60002);
+            server.Start();
+            client = new TcpClient();
+            client.Connect(new IPEndPoint(IPAddress.Loopback, 60002));
+            serverStream = client.GetStream();
+            clientStream = server.AcceptTcpClient().GetStream();
         }
 
         [TestCleanup]
         public void TestCleanup()
         {
-            if (sessionStream != null)
+            if (client != null)
             {
-                sessionStream.Close();
-                sessionStream.Dispose();
-                sessionStream = null;
+                client.Close();
+                client = null;
+            }
+
+            if (server != null)
+            {
+                server.Stop();
+                server = null;
             }
         }
 
@@ -49,7 +64,7 @@ namespace MS.SyncFrame.Tests
         [TestMethod()]
         [TestProperty("RequestSize", "100")]
         [TestProperty("ResponseSize", "100")]
-        [TestProperty("FrameDelay", "100")]
+        [TestProperty("FrameDelay", "10")]
         [TestProperty("NumRequests", "100")]
         public async Task MessageServerTests_CreateServerSessionTest()
         {
@@ -58,11 +73,11 @@ namespace MS.SyncFrame.Tests
             int responseSize = int.Parse((string)TestContext.Properties["ResponseSize"]);
             int frameDelay = int.Parse((string)TestContext.Properties["FrameDelay"]);
             TimeSpan minDelay = TimeSpan.FromMilliseconds(frameDelay);
-            Task listenTask = CreateTransmitTask(sessionStream, minDelay, numRequests, requestSize);
             Random r = new Random();
             using (CancellationTokenSource cts = new CancellationTokenSource())
-            using (MessageServer server = new MessageServer(sessionStream, cts.Token))
+            using (MessageServer server = new MessageServer(serverStream, cts.Token))
             {
+                Task listenTask = CreateTransmitTask(clientStream, minDelay, numRequests, requestSize, cts.Token);
                 Task sessionTask = server.Open();
                 Assert.IsTrue(server.IsConnectionOpen);
 
@@ -77,18 +92,24 @@ namespace MS.SyncFrame.Tests
                 }
 
                 cts.Cancel();
-                await sessionTask;
+                try
+                {
+                    await sessionTask;
+                    Assert.Fail();
+                }
+                catch (OperationCanceledException)
+                {
+
+                }
                 Assert.IsFalse(server.IsConnectionOpen);
             }
-            await listenTask;
         }
 
-        internal static async Task CreateTransmitTask(Stream serverStream, TimeSpan frameDelay, int numRequests, int requestSize)
+        internal static async Task CreateTransmitTask(Stream serverStream, TimeSpan frameDelay, int numRequests, int requestSize, CancellationToken token)
         {
                 Random r = new Random();
 
-                using (CancellationTokenSource cts = new CancellationTokenSource())
-                using (MessageClient client = new MessageClient(serverStream, cts.Token))
+                using (MessageClient client = new MessageClient(serverStream, token))
                 {
                     client.MinDelay = frameDelay;
                     Task sessionTask = client.Open();
@@ -104,7 +125,6 @@ namespace MS.SyncFrame.Tests
                                                         .Complete();
                     }
 
-                    cts.Cancel();
                     await sessionTask;
                 }
         }

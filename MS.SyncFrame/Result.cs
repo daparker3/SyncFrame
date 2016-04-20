@@ -12,6 +12,7 @@ namespace MS.SyncFrame
     using System.Linq;
     using System.Reflection;
     using System.Threading.Tasks;
+    using EnsureThat;
     using ProtoBuf;
 
     /// <summary>
@@ -19,8 +20,7 @@ namespace MS.SyncFrame
     /// </summary>
     public class Result
     {
-        private static MethodInfo serializeMethod = typeof(Serializer).GetMethods().Where((mi) => mi.Name == "Serialize").First();
-        private static MethodInfo deserializeMethod = typeof(Serializer).GetMethods().Where((mi) => mi.Name == "Deserialize").First();
+        private static MethodInfo deserializeMethod = typeof(Serializer).GetMethods().Where((mi) => mi.Name == "DeserializeWithLengthPrefix").First();
         private MessageTransport localTransport;
         private int requestId;
         private bool remote;
@@ -36,11 +36,12 @@ namespace MS.SyncFrame
             if (header.Faulted)
             {
                 MethodInfo faultDeserializer = deserializeMethod.MakeGenericMethod(header.DataType);
-                object faultObject = faultDeserializer.Invoke(null, new object[] { s });
-                Type faultObjectType = faultObject.GetType();
-                Type faultExceptionType = typeof(FaultException<>).MakeGenericType(faultObjectType);
-                ConstructorInfo faultExceptionConstructor = faultExceptionType.GetConstructor(new Type[] { faultObjectType });
-                throw faultExceptionConstructor.Invoke(new object[] { faultObject }) as Exception;
+                object faultObject = faultDeserializer.Invoke(null, new object[] { s, PrefixStyle.Base128 });
+                Type faultExceptionType = typeof(FaultException<>).MakeGenericType(header.DataType);
+                ConstructorInfo faultExceptionConstructor = faultExceptionType.GetConstructor(new Type[] { typeof(Result), header.DataType });
+                Exception faultEx = faultExceptionConstructor.Invoke(new object[] { this, faultObject }) as Exception;
+                this.localTransport.SetFault(faultEx);
+                throw faultEx;
             }
         }
 
@@ -88,6 +89,35 @@ namespace MS.SyncFrame
             }
         }
 
+        /// <summary>
+        /// Sends the data as a response to a remote request.
+        /// </summary>
+        /// <typeparam name="TResponse">The type of the response.</typeparam>
+        /// <param name="data">The data.</param>
+        /// <returns>A <see cref="Task{Result}"/> which completes with the message when sent.</returns>
+        /// <remarks>See the <see cref="MessageTransport.SendData{TRequest}(TRequest)"/> method for a list of exceptions that can be thrown.</remarks>
+        public async Task<Result> SendData<TResponse>(TResponse data) where TResponse : class
+        {
+            Ensure.That(data, "data").IsNotNull();
+            Contract.Requires(this.LocalTransport != null);
+            Contract.Requires(this.Remote);
+            return await this.LocalTransport.SendData(this, data);
+        }
+
+        /// <summary>
+        /// Sends a fault as a response to a remote request.
+        /// </summary>
+        /// <typeparam name="TFault">The type of the fault.</typeparam>
+        /// <param name="fault">The fault.</param>
+        /// <returns>A <see cref="Task{FaultException}"/> which contains information about the fault and can be thrown to terminate the session.</returns>
+        public async Task<FaultException<TFault>> SendFault<TFault>(TFault fault) where TFault : class
+        {
+            Ensure.That(fault, "fault").IsNotNull();
+            Contract.Requires(this.LocalTransport != null);
+            Contract.Requires(this.Remote);
+            return await this.LocalTransport.SendFault(this, fault);
+        }
+
         internal void Write<T>(Stream s, T value, bool isFault, bool isResponse) where T : class
         {
             Contract.Requires(s != null);
@@ -96,17 +126,14 @@ namespace MS.SyncFrame
             {
                 Faulted = isFault,
                 Response = isResponse,
-                RequestId = this.requestId
+                RequestId = this.requestId,
+                DataType = value.GetType()
             };
-
-            header.DataType = value.GetType();
+            
             Serializer.SerializeWithLengthPrefix(s, header, PrefixStyle.Base128);
-            if (value != null)
-            {
-                int start = (int)s.Position;
-                Serializer.Serialize(s, value);
-                s.Position = start;
-            }
+            long startData = s.Position;
+            Serializer.SerializeWithLengthPrefix(s, value, PrefixStyle.Base128);
+            s.Position = 0;
         }
     }
 }

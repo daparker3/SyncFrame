@@ -36,7 +36,7 @@ namespace MS.SyncFrame
             }
         }
 
-        protected TaskCompletionSource<bool> CompleteTask
+        internal TaskCompletionSource<bool> CompleteTask
         {
             get
             {

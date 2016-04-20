@@ -4,6 +4,8 @@ using System;
 using System.IO;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,7 +16,10 @@ namespace MS.SyncFrame.Tests
     [TestClass()]
     public class MessageClientTests
     {
-        Stream sessionStream;
+        TcpListener server;
+        TcpClient client;
+        Stream serverStream;
+        Stream clientStream;
 
         [ProtoContract]
         internal class Message
@@ -26,17 +31,27 @@ namespace MS.SyncFrame.Tests
         [TestInitialize]
         public void TestInitialize()
         {
-            sessionStream = new MemoryStream();
+            server = new TcpListener(IPAddress.Loopback, 60001);
+            server.Start();
+            client = new TcpClient();
+            client.Connect(new IPEndPoint(IPAddress.Loopback, 60001));
+            serverStream = client.GetStream();
+            clientStream = server.AcceptTcpClient().GetStream();
         }
 
         [TestCleanup]
         public void TestCleanup()
         {
-            if (sessionStream != null)
+            if (client != null)
             {
-                sessionStream.Close();
-                sessionStream.Dispose();
-                sessionStream = null;
+                client.Close();
+                client = null;
+            }
+
+            if (server != null)
+            {
+                server.Stop();
+                server = null;
             }
         }
 
@@ -49,18 +64,17 @@ namespace MS.SyncFrame.Tests
         [TestMethod()]
         [TestProperty("RequestSize", "100")]
         [TestProperty("ResponseSize", "100")]
-        [TestProperty("FrameDelay", "100")]
+        [TestProperty("FrameDelay", "10")]
         [TestProperty("NumRequests", "100")]
         public async Task MessageClientTests_CreateClientSessionTest()
         {
             int responseSize = int.Parse((string)TestContext.Properties["ResponseSize"]);
-            Task listenTask = CreateListenTask(sessionStream, responseSize);
             Random r = new Random();
             using (CancellationTokenSource cts = new CancellationTokenSource())
-            using (MessageClient client = new MessageClient(sessionStream, cts.Token))
+            using (MessageClient client = new MessageClient(clientStream, cts.Token))
             {
+                Task listenTask = CreateListenTask(serverStream, responseSize, cts.Token);
                 Task sessionTask = client.Open();
-                Thread.Sleep(1000);
                 Assert.IsTrue(client.IsConnectionOpen);
 
                 int frameDelay = int.Parse((string)TestContext.Properties["FrameDelay"]);
@@ -84,21 +98,27 @@ namespace MS.SyncFrame.Tests
                 }
 
                 cts.Cancel();
-                await sessionTask;
+                try
+                {
+                    await sessionTask;
+                    Assert.Fail();
+                }
+                catch (OperationCanceledException)
+                {
+
+                }
                 Assert.IsFalse(client.IsConnectionOpen);
             }
-
-            await listenTask;
         }
 
-        static async Task CreateListenTask(Stream clientStream, int responseSize)
+        static async Task CreateListenTask(Stream serverStream, int responseSize, CancellationToken token)
         {
             Random r = new Random();
-            using (CancellationTokenSource cts = new CancellationTokenSource())
-            using (MessageServer server = new MessageServer(clientStream, cts.Token))
+            using (MessageServer server = new MessageServer(serverStream, token))
             {
                 List<Task> sendTasks = new List<Task>();
                 Task sessionTask = server.Open();
+                Thread.Sleep(1000);
 
                 while (server.IsConnectionOpen)
                 {
@@ -109,8 +129,14 @@ namespace MS.SyncFrame.Tests
                     await request.SendData(m);
                 }
 
-                cts.Cancel();
-                await sessionTask;
+                try
+                {
+                    await sessionTask;
+                }
+                catch (OperationCanceledException)
+                {
+
+                }
             }
         }
     }

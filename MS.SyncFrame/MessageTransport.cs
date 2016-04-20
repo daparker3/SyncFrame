@@ -36,7 +36,6 @@ namespace MS.SyncFrame
         private int maxFrameSize = 0;
         private int currentRequest = 0;
         private int readBufferSize = 1 << 12;
-        private bool opened = false;
         private bool disposed = false;
 
         /// <summary>
@@ -322,17 +321,12 @@ namespace MS.SyncFrame
         /// <exception cref="OperationCanceledException">Occurs if the session was canceled.</exception>
         public virtual Task Open()
         {
-            bool alreadyOpened = this.opened;
-            this.opened = true;
+            Contract.Ensures(!this.IsConnectionOpen, Resources.ConnectionAlreadyOpened);
+            this.IsConnectionOpen = true;
+            this.connectionClosedTokenRegistration = this.connectionClosedToken.Register(this.ConnectionClosedHandler);
             return Task.Run(() =>
             {
-                if (alreadyOpened)
-                {
-                    throw new InvalidOperationException(Resources.ConnectionAlreadyOpened);
-                }
-
-                this.connectionClosedTokenRegistration = this.connectionClosedToken.Register(this.ConnectionClosedHandler);
-                this.IsConnectionOpen = true;
+                // Do we need to put something in here?
             });
         }
 
@@ -348,6 +342,7 @@ namespace MS.SyncFrame
         internal void SetFault<TFaultException>(TFaultException faultEx) where TFaultException : Exception
         {
             Contract.Requires(faultEx != null);
+            this.IsConnectionOpen = false;
             this.faultingTaskTcs.SetException(faultEx);
         }
 
@@ -451,6 +446,7 @@ namespace MS.SyncFrame
         {
             try
             {
+                Contract.Assert(this.IsConnectionOpen);
                 byte[] readBuffer = new byte[this.ReadBufferSize];
                 FrameHeader frameHeader = Serializer.DeserializeWithLengthPrefix<FrameHeader>(this.RemoteStream, PrefixStyle.Base128);
                 Contract.Assert(frameHeader != null);
@@ -465,7 +461,8 @@ namespace MS.SyncFrame
                         if (header.Response)
                         {
                             QueuedRequestResponseChunk qrc;
-                            Contract.Assert(this.requestResponseBuffer.TryGetResponse(header.RequestId, out qrc), Resources.NoSuchRequest);
+                            bool gotResponse = this.requestResponseBuffer.TryGetResponse(header.RequestId, out qrc);
+                            Contract.Assert(gotResponse, Resources.NoSuchRequest);
                             await this.ReadHandler(readBuffer, size, header, qrc);
                         }
                         else
@@ -494,6 +491,7 @@ namespace MS.SyncFrame
         {
             try
             {
+                Contract.Assert(this.IsConnectionOpen);
                 long written = 0;
                 long max = this.MaxFrameSize;
                 if (written >= max)
@@ -570,6 +568,7 @@ namespace MS.SyncFrame
             int remaining = size;
             qrc.Header = header;
             qrc.DataStream.SetLength(size);
+            qrc.DataStream.Position = 0;
             while (remaining > 0)
             {
                 int toCopy = remaining;
@@ -583,6 +582,7 @@ namespace MS.SyncFrame
                 remaining -= toCopy;
             }
 
+            qrc.DataStream.Position = 0;
             qrc.Complete();
         }
 

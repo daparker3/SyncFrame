@@ -28,7 +28,8 @@ namespace MS.SyncFrame
         internal QueuedRequestResponseChunk CreateResponse(Stream dataStream, int requestId)
         {
             Contract.Requires(dataStream != null);
-            Contract.Assert(!this.pendingResponsesByRequest.ContainsKey(requestId), Resources.TooManyRequests);
+            bool hasRequest = this.pendingResponsesByRequest.ContainsKey(requestId);
+            Contract.Assert(!hasRequest, Resources.TooManyRequests);
 
             // This request originates from us; set up our response handler.
             QueuedRequestResponseChunk responseChunk = new QueuedRequestResponseChunk(dataStream);
@@ -36,8 +37,9 @@ namespace MS.SyncFrame
             //// To prevent the response chunk going out of scope before the user can get it, we reference it in our
             //// return value. That way, if it actually does go out of scope we can catch it with a runtime error.
             WeakReference<QueuedRequestResponseChunk> responseWeakRef = new WeakReference<QueuedRequestResponseChunk>(responseChunk);
-            Contract.Assert(this.pendingResponsesByRequest.TryAdd(requestId, responseWeakRef), Resources.TheResponseWasCompletedMultipleTimes);
-            responseChunk.PostCompleteTask = Task.Run(() => this.PostComplete(responseWeakRef, requestId));
+            hasRequest = this.pendingResponsesByRequest.TryAdd(requestId, responseWeakRef);
+            Contract.Assert(hasRequest, Resources.TheResponseWasCompletedMultipleTimes);
+            responseChunk.PostCompleteTask = responseChunk.CompleteTask.Task.ContinueWith((t) => this.PostComplete(responseWeakRef, requestId));
             return responseChunk;
         }
 
@@ -85,7 +87,8 @@ namespace MS.SyncFrame
         {
             Contract.Requires(responseWeakRef != null);
             WeakReference<QueuedRequestResponseChunk> removedResponseWeakRef;
-            Contract.Assert(this.pendingResponsesByRequest.TryRemove(requestId, out removedResponseWeakRef), Resources.TheResponseWasCompletedMultipleTimes);
+            bool removedRequest = this.pendingResponsesByRequest.TryRemove(requestId, out removedResponseWeakRef);
+            Contract.Assert(removedRequest, Resources.TheResponseWasCompletedMultipleTimes);
             Contract.Assert(responseWeakRef == removedResponseWeakRef, Resources.RequestAlreadyInProgress);
         }
     }
