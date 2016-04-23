@@ -10,7 +10,6 @@ namespace MS.SyncFrame
     using System.Collections.Concurrent;
     using System.Diagnostics.Contracts;
     using System.IO;
-    using System.Threading.Tasks;
     using Properties;
 
     internal class ConcurrentRequestResponseBuffer

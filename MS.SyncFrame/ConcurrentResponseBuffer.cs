@@ -19,6 +19,7 @@ namespace MS.SyncFrame
         private ConcurrentDictionary<Type, ChunkCollection> pendingResponsesByType = new ConcurrentDictionary<Type, ChunkCollection>();
         private int bufferSize;
         private AutoResetEvent responseCompleteEvent = new AutoResetEvent(false);
+        private bool canceling = false;
         private bool disposed = false;
 
         internal ConcurrentResponseBuffer()
@@ -87,13 +88,19 @@ namespace MS.SyncFrame
             Contract.Requires(responseType != null);
             ChunkCollection chunkBag = this.GetChunkBag(responseType, responseCanceledToken, true);
             QueuedResponseChunk chunk = await chunkBag.DequeueChunk(responseCanceledToken);
-            this.ReleaseBuffer((int)chunk.DataStream.Length);
+            Contract.Assert(chunk != null);
+            if (chunk != null)
+            {
+                this.ReleaseBuffer((int)chunk.DataStream.Length);
+            }
+
             return chunk;
         }
 
         internal void CancelResponses()
         {
             Contract.Ensures(this.pendingResponsesByType.Count == 0);
+            this.canceling = true;
             int canceled;
             do
             {
@@ -159,7 +166,7 @@ namespace MS.SyncFrame
             Contract.Requires(bufSz <= this.BufferSize);
             Contract.Ensures(this.BufferUse <= this.BufferSize);
             this.BufferUse += bufSz;
-            while (this.BufferUse > this.BufferSize)
+            while (!this.canceling && this.BufferUse > this.BufferSize)
             {
                 await this.responseCompleteEvent.GetTaskSignalingCompletion();
             }
@@ -179,6 +186,7 @@ namespace MS.SyncFrame
             private ConcurrentBag<QueuedResponseChunk> chunkBag = new ConcurrentBag<QueuedResponseChunk>();
             private AutoResetEvent chunkQueuedEvent = new AutoResetEvent(false);
             private bool disposed = false;
+            private bool canceling = false;
 
             ~ChunkCollection()
             {
@@ -208,8 +216,8 @@ namespace MS.SyncFrame
 
             internal async Task<QueuedResponseChunk> DequeueChunk(CancellationToken token)
             {
-                QueuedResponseChunk ret;
-                while (!this.chunkBag.TryTake(out ret))
+                QueuedResponseChunk ret = null;
+                while (!this.canceling && !this.chunkBag.TryTake(out ret))
                 {
                     await this.chunkQueuedEvent.GetTaskSignalingCompletion();
                 }
@@ -220,6 +228,7 @@ namespace MS.SyncFrame
             internal int CancelResponses()
             {
                 Contract.Ensures(this.chunkBag.Count == 0);
+                this.canceling = true;
                 int canceled = 0;
                 do
                 {
@@ -244,17 +253,13 @@ namespace MS.SyncFrame
 
                     if (disposing)
                     {
-                        if (this.chunkQueuedEvent != null)
-                        {
-                            this.chunkQueuedEvent.Dispose();
-                            this.chunkQueuedEvent = null;
-                        }
-
                         QueuedResponseChunk response;
                         while (this.chunkBag.TryTake(out response))
                         {
                             response.Dispose();
                         }
+
+                        this.chunkQueuedEvent.Dispose();
                     }
                 }
             }

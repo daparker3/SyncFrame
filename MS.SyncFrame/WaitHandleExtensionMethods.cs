@@ -16,18 +16,21 @@ namespace MS.SyncFrame
         internal static async Task GetTaskSignalingCompletion(this WaitHandle waitHandle)
         {
             Contract.Requires(waitHandle != null);
-            TaskCompletionSource<bool> waitedTcs = new TaskCompletionSource<bool>();
-            RegisteredWaitHandle rwh = ThreadPool.RegisterWaitForSingleObject(waitHandle, (o, e) => waitedTcs.TrySetResult(true), null, -1, true);
             try
             {
-                await waitedTcs.Task;
+                TaskCompletionSource<bool> waitedTcs = new TaskCompletionSource<bool>();
+                RegisteredWaitHandle rwh = ThreadPool.RegisterWaitForSingleObject(waitHandle, (o, e) => waitedTcs.TrySetResult(true), null, -1, true);
+                try
+                {
+                    await waitedTcs.Task;
+                }
+                finally
+                {
+                    rwh.Unregister(waitHandle);
+                }
             }
-            catch (Exception)
+            catch (ObjectDisposedException)
             {
-            }
-            finally
-            {
-                rwh.Unregister(waitHandle);
             }
         }
     }

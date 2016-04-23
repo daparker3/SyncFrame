@@ -272,6 +272,12 @@ namespace MS.SyncFrame
         public async Task<TypedResult<TResponse>> ReceiveData<TResponse>(CancellationToken token) where TResponse : class
         {
             QueuedResponseChunk qrc = await this.responseBuffer.DequeueResponse(typeof(TResponse), token);
+            Contract.Assert(qrc != null);
+            if (qrc == null)
+            {
+                throw new OperationCanceledException();
+            }
+
             return await this.ReceiveData<TResponse>(qrc);
         }
 
