@@ -39,6 +39,7 @@ namespace MS.SyncFrame
         private int currentTypeId = 0;
         private int readBufferSize = 1 << 12;
         private bool disposed = false;
+        private bool canceling = false;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="MessageTransport"/> class.
@@ -448,8 +449,8 @@ namespace MS.SyncFrame
                             {
                                 QueuedRequestResponseChunk qrc;
                                 bool gotResponse = this.requestResponseBuffer.TryGetResponse(header.RequestId, out qrc);
-                                Contract.Assert(gotResponse, Resources.NoSuchRequest);
-                                if (gotResponse)
+                                Contract.Assert(this.canceling || gotResponse, Resources.NoSuchRequest);
+                                if (this.canceling || gotResponse)
                                 {
                                     await this.ReadHandler(readBuffer, size, header, qrc);
                                 }
@@ -564,6 +565,7 @@ namespace MS.SyncFrame
         private void ConnectionClosedHandler()
         {
             this.IsConnectionOpen = false;
+            this.canceling = true;
             this.CancelTaskCompletionSources();
         }
 
