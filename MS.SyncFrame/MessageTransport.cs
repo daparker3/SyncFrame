@@ -7,6 +7,7 @@
 namespace MS.SyncFrame
 {
     using System;
+    using System.Collections.Concurrent;
     using System.Collections.Generic;
     using System.Diagnostics.Contracts;
     using System.IO;
@@ -30,11 +31,12 @@ namespace MS.SyncFrame
         private ConcurrentRequestResponseBuffer requestResponseBuffer = new ConcurrentRequestResponseBuffer();
         private ConcurrentRequestBuffer requestBuffer = new ConcurrentRequestBuffer();
         private ConcurrentResponseBuffer responseBuffer = new ConcurrentResponseBuffer();
+        private ConcurrentDictionary<Type, int> typeIdsByType = new ConcurrentDictionary<Type, int>();
         private CancellationToken connectionClosedToken;
         private CancellationTokenRegistration connectionClosedTokenRegistration;
-        private PooledMemoryStreamManager pooledMemoryManager = new PooledMemoryStreamManager();
         private int maxFrameSize = 0;
         private int currentRequest = 0;
+        private int currentTypeId = 0;
         private int readBufferSize = 1 << 12;
         private bool disposed = false;
 
@@ -117,31 +119,6 @@ namespace MS.SyncFrame
             {
                 Ensure.That(value, "value").IsGt(0);
                 this.readBufferSize = value;
-            }
-        }
-
-        /// <summary>
-        /// Gets or sets the maximum size of the buffer pool in bytes.
-        /// </summary>
-        /// <value>
-        /// The minimum size used when allocating new buffer.
-        /// </value>
-        /// <remarks>
-        /// The transport will try to allocate memory used for serialization from a buffer when none is available, periodically clearing it
-        /// to enable garbage collection to work. The size of the buffer pool is a function of the number of workers in a
-        /// process and the size of each individual request. The default buffer pool size is 1 megabyte. 
-        /// </remarks>
-        public int BufferPoolSize
-        {
-            get
-            {
-                return this.pooledMemoryManager.NewSegmentSize;
-            }
-
-            set
-            {
-                Ensure.That(value, "value").IsGte(0);
-                this.pooledMemoryManager.NewSegmentSize = value;
             }
         }
 
@@ -379,17 +356,19 @@ namespace MS.SyncFrame
             }
 
             RequestResult requestResult = new RequestResult(this, request.RequestId);
-            QueuedRequestChunk qrc = new QueuedRequestChunk(this.pooledMemoryManager.CreateStream());
+            Type requestType = typeof(TRequest);
+            int typeId = this.GetTypeId(requestType);
+            QueuedRequestChunk qrc = new QueuedRequestChunk(new MemoryStream(), typeId, requestType);
             QueuedRequestResponseChunk responseChunk = null;
             if (!request.Remote)
             {
-                responseChunk = this.requestResponseBuffer.CreateResponse(this.pooledMemoryManager.CreateStream(), request.RequestId);
+                responseChunk = this.requestResponseBuffer.CreateResponse(new MemoryStream(), request.RequestId);
                 requestResult.ResponseChunk = responseChunk;
             }
 
             try
             {
-                requestResult.Write(qrc.DataStream, data, fault, request.Remote);
+                requestResult.Write(qrc.DataStream, data, typeId, fault, request.Remote);
                 this.requestBuffer.QueueRequest(qrc);
                 return requestResult;
             }
@@ -420,6 +399,8 @@ namespace MS.SyncFrame
 
                 if (disposing)
                 {
+                    this.IsConnectionOpen = false;
+
                     if (this.RemoteStream != null)
                     {
                         this.RemoteStream.Close();
@@ -444,42 +425,52 @@ namespace MS.SyncFrame
         /// <returns>A task which when complete indicates the read period of the sync is done.</returns>
         protected async Task ReadMessages()
         {
-            try
+            if (this.IsConnectionOpen)
             {
-                Contract.Assert(this.IsConnectionOpen);
-                byte[] readBuffer = new byte[this.ReadBufferSize];
                 FrameHeader frameHeader = Serializer.DeserializeWithLengthPrefix<FrameHeader>(this.RemoteStream, PrefixStyle.Base128);
-                Contract.Assert(frameHeader != null);
-                if (frameHeader.MessageSizes != null)
+                if (frameHeader != null && frameHeader.MessageSizes != null && frameHeader.Types != null)
                 {
-                    foreach (int size in frameHeader.MessageSizes)
+                    try
                     {
-                        this.ConnectionClosedToken.ThrowIfCancellationRequested();
-                        MessageHeader header = Serializer.DeserializeWithLengthPrefix<MessageHeader>(this.RemoteStream, PrefixStyle.Base128);
-
-                        // Now that we have the header, we can figure out what to dispatch it to (if anything)
-                        if (header.Response)
+                        byte[] readBuffer = new byte[this.ReadBufferSize];
+                        Dictionary<int, Type> typeMap = new Dictionary<int, Type>();
+                        foreach (FrameType type in frameHeader.Types)
                         {
-                            QueuedRequestResponseChunk qrc;
-                            bool gotResponse = this.requestResponseBuffer.TryGetResponse(header.RequestId, out qrc);
-                            Contract.Assert(gotResponse, Resources.NoSuchRequest);
-                            await this.ReadHandler(readBuffer, size, header, qrc);
+                            typeMap[type.TypeId] = type.Type;
                         }
-                        else
+
+                        Contract.Assert(frameHeader != null);
+                        if (frameHeader.MessageSizes != null)
                         {
-                            QueuedResponseChunk qrc = new QueuedResponseChunk(this.pooledMemoryManager.CreateStream());
-                            await this.ReadHandler(readBuffer, size, header, qrc);
-                            await this.responseBuffer.QueueResponse(header.DataType, qrc, this.ConnectionClosedToken);
+                            foreach (int size in frameHeader.MessageSizes)
+                            {
+                                this.ConnectionClosedToken.ThrowIfCancellationRequested();
+                                MessageHeader header = Serializer.DeserializeWithLengthPrefix<MessageHeader>(this.RemoteStream, PrefixStyle.Base128);
+
+                                // Now that we have the header, we can figure out what to dispatch it to (if anything)
+                                if (header.Response)
+                                {
+                                    QueuedRequestResponseChunk qrc;
+                                    bool gotResponse = this.requestResponseBuffer.TryGetResponse(header.RequestId, out qrc);
+                                    Contract.Assert(gotResponse, Resources.NoSuchRequest);
+                                    await this.ReadHandler(readBuffer, size, header, qrc);
+                                }
+                                else
+                                {
+                                    QueuedResponseChunk qrc = new QueuedResponseChunk(new MemoryStream(size));
+                                    await this.ReadHandler(readBuffer, size, header, qrc);
+                                    Type t = typeMap[header.DataTypeIndex];
+                                    await this.responseBuffer.QueueResponse(t, qrc, this.ConnectionClosedToken);
+                                }
+                            }
                         }
                     }
+                    catch (Exception)
+                    {
+                        this.CancelTaskCompletionSources();
+                        throw;
+                    }
                 }
-
-                this.pooledMemoryManager.Flush();
-            }
-            catch (Exception)
-            {
-                this.CancelTaskCompletionSources();
-                throw;
             }
         }
 
@@ -489,60 +480,70 @@ namespace MS.SyncFrame
         /// <returns>A task which when complete indicates the write period of the sync is done.</returns>
         protected async Task WriteMessages()
         {
-            try
+            if (this.IsConnectionOpen)
             {
-                Contract.Assert(this.IsConnectionOpen);
-                long written = 0;
-                long max = this.MaxFrameSize;
-                if (written >= max)
+                try
                 {
-                    throw new InternalBufferOverflowException();
-                }
-
-                List<QueuedRequestChunk> outputChunks = new List<QueuedRequestChunk>();
-                LinkedList<int> sizes = new LinkedList<int>();
-                foreach (QueuedRequestChunk chunk in this.requestBuffer.DequeueRequests())
-                {
-                    long toWrite = chunk.DataStream.Length;
-                    if (written + toWrite > max)
+                    long written = 0;
+                    long max = this.MaxFrameSize;
+                    if (written >= max)
                     {
-                        if (written == 0)
+                        throw new InternalBufferOverflowException();
+                    }
+
+                    List<QueuedRequestChunk> outputChunks = new List<QueuedRequestChunk>();
+                    LinkedList<int> sizes = new LinkedList<int>();
+                    HashSet<Type> referencedTypes = new HashSet<Type>();
+                    LinkedList<FrameType> frameTypes = new LinkedList<FrameType>();
+                    foreach (QueuedRequestChunk chunk in this.requestBuffer.DequeueRequests())
+                    {
+                        long toWrite = chunk.DataStream.Length;
+                        if (written + toWrite > max)
                         {
-                            // Uh oh, we can't write this chunk. 
-                            throw new InternalBufferOverflowException();
+                            if (written == 0)
+                            {
+                                // Uh oh, we can't write this chunk. 
+                                throw new InternalBufferOverflowException();
+                            }
+
+                            this.requestBuffer.RequeueRequest(chunk);
                         }
-
-                        this.requestBuffer.RequeueRequest(chunk);
+                        else
+                        {
+                            written += toWrite;
+                            Contract.Assert(chunk.DataStream.Length == (int)chunk.DataStream.Length);
+                            outputChunks.Add(chunk);
+                            sizes.AddLast((int)toWrite);
+                            if (!referencedTypes.Contains(chunk.Type))
+                            {
+                                referencedTypes.Add(chunk.Type);
+                                frameTypes.AddLast(new FrameType { Type = chunk.Type, TypeId = chunk.TypeId });
+                            }
+                        }
                     }
-                    else
+
+                    FrameHeader frameHeader = new FrameHeader();
+                    frameHeader.MessageSizes = sizes.ToArray();
+                    frameHeader.Types = frameTypes.ToArray();
+                    Serializer.SerializeWithLengthPrefix(this.RemoteStream, frameHeader, PrefixStyle.Base128);
+                    foreach (QueuedRequestChunk qrc in outputChunks)
                     {
-                        written += toWrite;
-                        Contract.Assert(chunk.DataStream.Length == (int)chunk.DataStream.Length);
-                        outputChunks.Add(chunk);
-                        sizes.AddLast((int)toWrite);
+                        qrc.DataStream.Position = 0;
+                        await qrc.DataStream.CopyToAsync(this.RemoteStream);
+                        qrc.Complete();
+                    }
+
+                    // After writing out our fault to the remote, we fault.
+                    if (written > 0 && this.faultingTaskTcs.Task.IsCompleted)
+                    {
+                        await this.faultingTaskTcs.Task;
                     }
                 }
-
-                FrameHeader frameHeader = new FrameHeader();
-                frameHeader.MessageSizes = sizes.ToArray();
-                Serializer.SerializeWithLengthPrefix(this.RemoteStream, frameHeader, PrefixStyle.Base128);
-                foreach (QueuedRequestChunk qrc in outputChunks)
+                catch (Exception)
                 {
-                    qrc.DataStream.Position = 0;
-                    await qrc.DataStream.CopyToAsync(this.RemoteStream);
-                    qrc.Complete();
+                    this.CancelTaskCompletionSources();
+                    throw;
                 }
-
-                // After writing out our fault to the remote, we fault.
-                if (written > 0 && this.faultingTaskTcs.Task.IsCompleted)
-                {
-                    await this.faultingTaskTcs.Task;
-                }
-            }
-            catch (Exception)
-            {
-                this.CancelTaskCompletionSources();
-                throw;
             }
         }
 
@@ -558,6 +559,18 @@ namespace MS.SyncFrame
         {
             this.IsConnectionOpen = false;
             this.CancelTaskCompletionSources();
+        }
+
+        private int GetTypeId(Type type)
+        {
+            int value;
+            if (this.typeIdsByType.TryGetValue(type, out value))
+            {
+                return value;
+            }
+
+            this.typeIdsByType.TryAdd(type, ++this.currentTypeId);
+            return this.typeIdsByType[type];
         }
 
         private async Task ReadHandler(byte[] readBuffer, int size, MessageHeader header, QueuedResponseChunk qrc)
@@ -592,7 +605,7 @@ namespace MS.SyncFrame
             try
             {
                 await qrc.ResponseComplete();
-                return new TypedResult<TResponse>(this, qrc.Header, qrc.DataStream);
+                return new TypedResult<TResponse>(this, typeof(TResponse), qrc.Header, qrc.DataStream);
             }
             finally
             {

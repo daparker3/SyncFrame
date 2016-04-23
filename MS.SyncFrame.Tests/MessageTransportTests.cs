@@ -135,18 +135,21 @@ namespace MS.SyncFrame.Tests
         {
             FrameHeader frameHeader = new FrameHeader();
             frameHeader.MessageSizes = new int[] { 1 };
+            frameHeader.Types = new FrameType[] { new FrameType { Type = typeof(int), TypeId = 1 }, new FrameType { Type = typeof(bool), TypeId = 2 }, };
             Serializer.SerializeWithLengthPrefix(clientStream, frameHeader, PrefixStyle.Base128);
             FrameHeader frameHeader2 = Serializer.DeserializeWithLengthPrefix<FrameHeader>(serverStream, PrefixStyle.Base128);
             Assert.AreEqual(frameHeader.MessageSizes.Length, frameHeader2.MessageSizes.Length);
             Assert.AreEqual(frameHeader.MessageSizes[0], frameHeader2.MessageSizes[0]);
+            Assert.AreEqual(frameHeader.Types.Length, frameHeader2.Types.Length);
+            Assert.AreEqual(frameHeader.Types[0].Type, frameHeader2.Types[0].Type);
             MessageHeader messageHeader = new MessageHeader();
-            messageHeader.DataType = typeof(object);
+            messageHeader.DataTypeIndex = 1;
             messageHeader.Faulted = false;
             messageHeader.RequestId = 2;
             messageHeader.Response = true;
             Serializer.SerializeWithLengthPrefix(clientStream, messageHeader, PrefixStyle.Base128);
             MessageHeader messageHeader2 = Serializer.DeserializeWithLengthPrefix<MessageHeader>(serverStream, PrefixStyle.Base128);
-            Assert.AreEqual(messageHeader.DataType, messageHeader2.DataType);
+            Assert.AreEqual(messageHeader.DataTypeIndex, messageHeader2.DataTypeIndex);
             Assert.AreEqual(messageHeader.Faulted, messageHeader2.Faulted);
             Assert.AreEqual(messageHeader.RequestId, messageHeader2.RequestId);
             Assert.AreEqual(messageHeader.Response, messageHeader2.Response);

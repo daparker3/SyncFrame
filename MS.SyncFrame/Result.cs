@@ -25,9 +25,10 @@ namespace MS.SyncFrame
         private int requestId;
         private bool remote;
 
-        internal Result(MessageTransport localTransport, MessageHeader header, Stream s)
+        internal Result(MessageTransport localTransport, Type dataType, MessageHeader header, Stream s)
         {
             Contract.Requires(localTransport != null);
+            Contract.Requires(dataType != null);
             Contract.Requires(header != null);
             Contract.Requires(s != null);
             this.localTransport = localTransport;
@@ -35,10 +36,10 @@ namespace MS.SyncFrame
             this.requestId = header.RequestId;
             if (header.Faulted)
             {
-                MethodInfo faultDeserializer = deserializeMethod.MakeGenericMethod(header.DataType);
+                MethodInfo faultDeserializer = deserializeMethod.MakeGenericMethod(dataType);
                 object faultObject = faultDeserializer.Invoke(null, new object[] { s, PrefixStyle.Base128 });
-                Type faultExceptionType = typeof(FaultException<>).MakeGenericType(header.DataType);
-                ConstructorInfo faultExceptionConstructor = faultExceptionType.GetConstructor(new Type[] { typeof(Result), header.DataType });
+                Type faultExceptionType = typeof(FaultException<>).MakeGenericType(dataType);
+                ConstructorInfo faultExceptionConstructor = faultExceptionType.GetConstructor(new Type[] { typeof(Result), dataType });
                 Exception faultEx = faultExceptionConstructor.Invoke(new object[] { this, faultObject }) as Exception;
                 this.localTransport.SetFault(faultEx);
                 throw faultEx;
@@ -118,16 +119,17 @@ namespace MS.SyncFrame
             return await this.LocalTransport.SendFault(this, fault);
         }
 
-        internal void Write<T>(Stream s, T value, bool isFault, bool isResponse) where T : class
+        internal void Write<T>(Stream s, T value, int typeIndex, bool isFault, bool isResponse) where T : class
         {
             Contract.Requires(s != null);
             Contract.Requires(value != null);
+            Contract.Requires(typeIndex > 0);
             MessageHeader header = new MessageHeader
             {
                 Faulted = isFault,
                 Response = isResponse,
                 RequestId = this.requestId,
-                DataType = value.GetType()
+                DataTypeIndex = typeIndex
             };
             
             Serializer.SerializeWithLengthPrefix(s, header, PrefixStyle.Base128);

@@ -101,10 +101,10 @@ namespace MS.SyncFrame
         /// <exception cref="FaultException{TFault}">Occurs if a response to a remote request generates a fault.</exception>
         public override async Task Open()
         {
-            await base.Open();
-
             try
             {
+                await base.Open();
+
                 while (this.IsConnectionOpen)
                 {
                     Task delayTask = Task.Delay(this.MinDelay, this.ConnectionClosedToken);
@@ -120,6 +120,16 @@ namespace MS.SyncFrame
             {
                 this.latencyGapMeasurementTcs.TrySetCanceled();
                 throw;
+            }
+            finally
+            {
+                try
+                {
+                    this.Dispose();
+                }
+                catch (Exception)
+                {
+                }
             }
         }
 

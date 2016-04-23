@@ -6,6 +6,7 @@
 
 namespace MS.SyncFrame
 {
+    using System;
     using System.Diagnostics.Contracts;
     using System.IO;
 
@@ -17,10 +18,11 @@ namespace MS.SyncFrame
     {
         private QueuedResponseChunk responseChunk;
 
-        internal RequestResult(MessageTransport localTransport, MessageHeader header, Stream s)
-            : base(localTransport, header, s)
+        internal RequestResult(MessageTransport localTransport, Type dataType, MessageHeader header, Stream s)
+            : base(localTransport, dataType, header, s)
         {
             Contract.Requires(localTransport != null);
+            Contract.Requires(dataType != null);
             Contract.Requires(header != null);
             Contract.Requires(s != null);
         }

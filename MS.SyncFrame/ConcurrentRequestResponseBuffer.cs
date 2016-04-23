@@ -16,6 +16,7 @@ namespace MS.SyncFrame
     internal class ConcurrentRequestResponseBuffer
     {
         private ConcurrentDictionary<int, WeakReference<QueuedRequestResponseChunk>> pendingResponsesByRequest = new ConcurrentDictionary<int, WeakReference<QueuedRequestResponseChunk>>();
+        private bool canceling = false;
 
         internal int Count
         {
@@ -61,6 +62,7 @@ namespace MS.SyncFrame
         internal void CancelResponses()
         {
             Contract.Ensures(this.pendingResponsesByRequest.Count == 0);
+            this.canceling = true;
             int canceled;
             do
             {
@@ -88,8 +90,11 @@ namespace MS.SyncFrame
             Contract.Requires(responseWeakRef != null);
             WeakReference<QueuedRequestResponseChunk> removedResponseWeakRef;
             bool removedRequest = this.pendingResponsesByRequest.TryRemove(requestId, out removedResponseWeakRef);
-            Contract.Assert(removedRequest, Resources.TheResponseWasCompletedMultipleTimes);
-            Contract.Assert(responseWeakRef == removedResponseWeakRef, Resources.RequestAlreadyInProgress);
+            if (!this.canceling)
+            {
+                Contract.Assert(removedRequest, Resources.TheResponseWasCompletedMultipleTimes);
+                Contract.Assert(responseWeakRef == removedResponseWeakRef, Resources.RequestAlreadyInProgress);
+            }
         }
     }
 }

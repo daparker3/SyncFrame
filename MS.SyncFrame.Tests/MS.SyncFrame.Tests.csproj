@@ -53,6 +53,7 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="ClientServerMessageScenarios.cs" />
     <Compile Include="FaultExceptionTFaultTest.cs" />
     <Compile Include="MessageClientTests.cs" />
     <Compile Include="MessageServerTests.cs" />

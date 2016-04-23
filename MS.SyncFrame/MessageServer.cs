@@ -72,12 +72,25 @@ namespace MS.SyncFrame
         /// <exception cref="FaultException{TFault}">Occurs if a response to a remote request generates a fault.</exception>
         public override async Task Open()
         {
-            await base.Open();
-
-            while (this.IsConnectionOpen)
+            try
             {
-                await this.ReadMessages();
-                await this.WriteMessages();
+                await base.Open();
+
+                while (this.IsConnectionOpen)
+                {
+                    await this.ReadMessages();
+                    await this.WriteMessages();
+                }
+            }
+            finally
+            {
+                try
+                {
+                    this.Dispose();
+                }
+                catch (Exception)
+                {
+                }
             }
         }
     }

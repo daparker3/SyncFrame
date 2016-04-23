@@ -6,6 +6,7 @@
 
 namespace MS.SyncFrame
 {
+    using System;
     using System.Diagnostics.Contracts;
     using System.IO;
     using EnsureThat;
@@ -19,10 +20,11 @@ namespace MS.SyncFrame
     {
         private TResult result;
 
-        internal TypedResult(MessageTransport localTransport, MessageHeader header, Stream s)
-            : base(localTransport, header, s)
+        internal TypedResult(MessageTransport localTransport, Type dataType, MessageHeader header, Stream s)
+            : base(localTransport, dataType, header, s)
         {
             Contract.Requires(localTransport != null);
+            Contract.Requires(dataType != null);
             Contract.Requires(header != null);
             Contract.Requires(s != null);
             Contract.Ensures(this.result != null);

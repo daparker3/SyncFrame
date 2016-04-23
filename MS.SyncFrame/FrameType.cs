@@ -1,5 +1,5 @@
 ﻿//-----------------------------------------------------------------------
-// <copyright file="FrameHeader.cs" company="MS">
+// <copyright file="FrameType.cs" company="MS">
 //     Copyright (c) 2016 MS
 // </copyright>
 //-----------------------------------------------------------------------
@@ -10,12 +10,12 @@ namespace MS.SyncFrame
     using ProtoBuf;
 
     [ProtoContract]
-    internal class FrameHeader
+    internal class FrameType
     {
-        [ProtoMember(2)]
-        internal FrameType[] Types { get; set; }
-
         [ProtoMember(1)]
-        internal int[] MessageSizes { get; set; }
+        internal int TypeId { get; set; }
+
+        [ProtoMember(2)]
+        internal Type Type { get; set; }
     }
 }
