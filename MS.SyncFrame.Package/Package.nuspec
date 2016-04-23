@@ -7,14 +7,13 @@
     <authors>Dan Parker</authors>
     <owners></owners>
     <description>
-      SyncFrame provides a library for efficient message streaming using sync frames which are built on top of protocol buffers.
-      It provides for a one way, bidirectional request-response paradigm, and allows a configurable request intervals as well as message fragmentation.
-      For more information, please see the white-paper or API documentation.
+      SyncFrame provides a library for efficient message streaming across TCP/IP connections by combining multiple requests and responses into a single message frame.
+      It provides for a one way, unidirectional or bidirectional request-response semantics from client or server, and allows a configurable request intervals as well as message fragmentation.
     </description>
     <releaseNotes>
     </releaseNotes>
     <summary>
-      SyncFrame provides a library for efficient message streaming using sync frames which are built on top of protocol buffers.
+      SyncFrame provides a library for efficient message streaming across TCP/IP connections by combining multiple requests and responses into a single message frame.
     </summary>
     <language>en-US</language>
     <projectUrl>https://nuget.org/packages/MS.SyncFrame</projectUrl>

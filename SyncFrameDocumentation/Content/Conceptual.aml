@@ -5,14 +5,13 @@
     xmlns:xlink="http://www.w3.org/1999/xlink">
 
     <introduction>
-      <para>SyncFrame provides a library for efficient message streaming across TCP/IP networks. 
-      It provides for one way, bidirectional or unidirectional messaging, and allows for configurable request intervals as well as message fragmentation. 
-      For more information, please see the white-paper or API documentation.</para>
+      <para>
+        SyncFrame provides a library for efficient message streaming across TCP/IP connections by combining multiple requests and responses into a single message frame.
+        It provides for a one way, unidirectional or bidirectional request-response semantics from client or server, and allows a configurable request intervals as well as message fragmentation.
+      </para>
     </introduction>
 
     <relatedTopics>
-      <link xlink:href="d7ee0123-949e-464a-bca9-3d7a4ca7834b" />
-
       <externalLink>
         <linkText>SyncFrame on nuget</linkText>
         <linkAlternateText>SyncFrame on nuget</linkAlternateText>

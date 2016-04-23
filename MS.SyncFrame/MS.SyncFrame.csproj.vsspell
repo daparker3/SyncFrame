@@ -9,8 +9,9 @@
     <Ignore>async</Ignore>
     <Ignore>cts</Ignore>
     <Ignore>Deserialize</Ignore>
-    <Ignore>tcs</Ignore>
     <Ignore>deserializing</Ignore>
+    <Ignore>tcs</Ignore>
+    <Ignore>namespace</Ignore>
   </IgnoredWords>
   <InheritExclusionExpressions>True</InheritExclusionExpressions>
   <InheritIgnoredFilePatterns>True</InheritIgnoredFilePatterns>

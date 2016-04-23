@@ -1,2 +1,3 @@
 # SyncFrame
-SyncFrame provides a library for efficient message streaming using sync frames which are built on top of protocol buffers. More information, including API documentation, is available on the wiki.
+SyncFrame provides a library for efficient message streaming across TCP/IP connections by combining multiple requests and responses into a single message frame.
+It provides for a one way, unidirectional or bidirectional request-response semantics from client or server, and allows a configurable request intervals as well as message fragmentation.
