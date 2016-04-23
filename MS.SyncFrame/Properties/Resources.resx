@@ -132,6 +132,9 @@
   <data name="ConnectionClosed" xml:space="preserve">
     <value>The connection was closed.</value>
   </data>
+  <data name="ConnectionClosedDueToInternalError" xml:space="preserve">
+    <value>The connection was closed due to an internal error.</value>
+  </data>
   <data name="NoSuchRequest" xml:space="preserve">
     <value>No such request.</value>
   </data>
@@ -146,5 +149,8 @@
   </data>
   <data name="Unknown" xml:space="preserve">
     <value>Unknown</value>
+  </data>
+  <data name="WriteBufferOverflow" xml:space="preserve">
+    <value>Write buffer overflow.</value>
   </data>
 </root>

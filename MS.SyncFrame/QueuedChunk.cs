@@ -13,7 +13,6 @@ namespace MS.SyncFrame
 
     internal class QueuedChunk : IDisposable
     {
-        private TaskCompletionSource<bool> completeTask = new TaskCompletionSource<bool>();
         private Stream dataStream;
         private bool disposed = false;
 
@@ -36,24 +35,10 @@ namespace MS.SyncFrame
             }
         }
 
-        internal TaskCompletionSource<bool> CompleteTask
-        {
-            get
-            {
-                return this.completeTask;
-            }
-        }
-
         public void Dispose()
         {
             this.Dispose(true);
             GC.SuppressFinalize(this);
-        }
-
-        internal void Complete()
-        {
-            Contract.Ensures(this.completeTask.Task.Status != TaskStatus.Running);
-            this.completeTask.TrySetResult(true);
         }
 
         protected virtual void Dispose(bool disposing)
@@ -65,11 +50,6 @@ namespace MS.SyncFrame
 
                 if (disposing)
                 {
-                    if (this.completeTask != null)
-                    {
-                        this.completeTask.TrySetCanceled();
-                    }
-
                     if (this.dataStream != null)
                     {
                         this.dataStream.Dispose();

@@ -106,6 +106,15 @@ namespace MS.SyncFrame.Properties {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to The connection was closed due to an internal error..
+        /// </summary>
+        internal static string ConnectionClosedDueToInternalError {
+            get {
+                return ResourceManager.GetString("ConnectionClosedDueToInternalError", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to No such request..
         /// </summary>
         internal static string NoSuchRequest {
@@ -147,6 +156,15 @@ namespace MS.SyncFrame.Properties {
         internal static string Unknown {
             get {
                 return ResourceManager.GetString("Unknown", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Write buffer overflow..
+        /// </summary>
+        internal static string WriteBufferOverflow {
+            get {
+                return ResourceManager.GetString("WriteBufferOverflow", resourceCulture);
             }
         }
     }

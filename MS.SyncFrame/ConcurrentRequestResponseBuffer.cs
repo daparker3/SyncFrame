@@ -10,6 +10,7 @@ namespace MS.SyncFrame
     using System.Collections.Concurrent;
     using System.Diagnostics.Contracts;
     using System.IO;
+    using System.Threading.Tasks;
     using Properties;
 
     internal class ConcurrentRequestResponseBuffer
@@ -40,7 +41,7 @@ namespace MS.SyncFrame
                 WeakReference<QueuedRequestResponseChunk> responseWeakRef = new WeakReference<QueuedRequestResponseChunk>(responseChunk);
                 hasRequest = this.pendingResponsesByRequest.TryAdd(requestId, responseWeakRef);
                 Contract.Assert(hasRequest, Resources.TheResponseWasCompletedMultipleTimes);
-                responseChunk.PostCompleteTask = responseChunk.CompleteTask.Task.ContinueWith((t) => this.PostComplete(responseWeakRef, requestId));
+                responseChunk.PostCompleteTask = this.PostResponseComplete(responseChunk.CompleteTask.Task, responseWeakRef, requestId);
                 return responseChunk;
             }
 
@@ -86,6 +87,12 @@ namespace MS.SyncFrame
                 }
             }
             while (canceled > 0);
+        }
+
+        private async Task PostResponseComplete(Task<bool> completeTask, WeakReference<QueuedRequestResponseChunk> responseWeakRef, int requestId)
+        {
+            await completeTask;
+            this.PostComplete(responseWeakRef, requestId);
         }
 
         private void PostComplete(WeakReference<QueuedRequestResponseChunk> responseWeakRef, int requestId)

@@ -88,7 +88,6 @@ namespace MS.SyncFrame
             Contract.Requires(responseType != null);
             ChunkCollection chunkBag = this.GetChunkBag(responseType, responseCanceledToken, true);
             QueuedResponseChunk chunk = await chunkBag.DequeueChunk(responseCanceledToken);
-            Contract.Assert(chunk != null);
             if (chunk != null)
             {
                 this.ReleaseBuffer((int)chunk.DataStream.Length);

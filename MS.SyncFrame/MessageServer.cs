@@ -82,10 +82,6 @@ namespace MS.SyncFrame
                     await this.WriteMessages();
                 }
             }
-            catch (Exception ex)
-            {
-                throw new ConnectionClosedException(Resources.ConnectionClosed, ex);
-            }
             finally
             {
                 try

@@ -31,12 +31,13 @@ namespace MS.SyncFrame
         private ConcurrentRequestResponseBuffer requestResponseBuffer = new ConcurrentRequestResponseBuffer();
         private ConcurrentRequestBuffer requestBuffer = new ConcurrentRequestBuffer();
         private ConcurrentResponseBuffer responseBuffer = new ConcurrentResponseBuffer();
-        private ConcurrentDictionary<Type, int> typeIdsByType = new ConcurrentDictionary<Type, int>();
         private CancellationToken connectionClosedToken;
         private CancellationTokenRegistration connectionClosedTokenRegistration;
+        private HashSet<int> markedTypeIds = new HashSet<int>();
+        private Dictionary<int, Type> requestTypeIdsByType = new Dictionary<int, Type>();
+        private Exception faultingException = null;
         private int maxFrameSize = 0;
         private int currentRequest = 0;
-        private int currentTypeId = 0;
         private int readBufferSize = 1 << 12;
         private bool disposed = false;
         private bool canceling = false;
@@ -242,10 +243,10 @@ namespace MS.SyncFrame
         /// <see cref="ReceiveData{TResponse}()"/>, you may cause a buffer overflow on the transport receiving messages.
         /// Make sure you call <see cref="ReceiveData{TResponse}()"/> periodically on the listener during the session.
         /// </remarks>
-        public async Task<RequestResult> SendData<TRequest>(TRequest data) where TRequest : class
+        public Task<RequestResult> SendData<TRequest>(TRequest data) where TRequest : class
         {
             Contract.Requires(data != null);
-            return await this.SendData(this.CreateResult(), data, false);
+            return Task.Run(() => this.SendData(this.CreateResult(), data, false));
         }
 
         /// <summary>
@@ -323,14 +324,7 @@ namespace MS.SyncFrame
             GC.SuppressFinalize(this);
         }
 
-        internal void SetFault<TFaultException>(TFaultException faultEx) where TFaultException : Exception
-        {
-            Contract.Requires(faultEx != null);
-            this.IsConnectionOpen = false;
-            this.faultingTaskTcs.SetException(faultEx);
-        }
-
-        internal async Task<FaultException<TFault>> SendFault<TFault>(Result result, TFault fault) where TFault : class
+        internal FaultException<TFault> SendFault<TFault>(Result result, TFault fault) where TFault : class
         {
             Contract.Requires(result != null);
             Contract.Requires(fault != null);
@@ -338,22 +332,22 @@ namespace MS.SyncFrame
             if (result.LocalTransport != null)
             {
                 // We're responding to a remote request, but our response generated a fault. Send the fault back to the remote.
-                await this.SendData(result, fault, true);
-                this.SetFault(ret);
+                this.SendData(result, fault, true);
+                this.faultingException = ret;
             }
 
             return ret;
         }
 
-        internal async Task<Result> SendData<TRequest>(Result result, TRequest data) where TRequest : class
+        internal Result SendData<TRequest>(Result result, TRequest data) where TRequest : class
         {
             Contract.Requires(result != null);
             Contract.Requires(data != null);
-            RequestResult rr = await this.SendData(result, data, false);
+            RequestResult rr = this.SendData(result, data, false);
             return (Result)rr;
         }
 
-        internal async Task<RequestResult> SendData<TRequest>(Result request, TRequest data, bool fault) where TRequest : class
+        internal RequestResult SendData<TRequest>(Result request, TRequest data, bool fault) where TRequest : class
         {
             Contract.Requires(request != null);
             Contract.Requires(data != null);
@@ -364,7 +358,7 @@ namespace MS.SyncFrame
 
             RequestResult requestResult = new RequestResult(this, request.RequestId);
             Type requestType = typeof(TRequest);
-            int typeId = this.GetTypeId(requestType);
+            int typeId = this.requestBuffer.GetTypeId(requestType);
             QueuedRequestChunk qrc = new QueuedRequestChunk(new MemoryStream(), typeId, requestType);
             QueuedRequestResponseChunk responseChunk = null;
             if (!request.Remote)
@@ -373,17 +367,20 @@ namespace MS.SyncFrame
                 requestResult.ResponseChunk = responseChunk;
             }
 
-            try
+            HeaderFlags flags = HeaderFlags.None;
+            if (fault)
             {
-                requestResult.Write(qrc.DataStream, data, typeId, fault, request.Remote);
-                this.requestBuffer.QueueRequest(qrc);
-                return requestResult;
+                flags |= HeaderFlags.Faulted;
             }
-            finally
+
+            if (request.Remote)
             {
-                await qrc.ResponseComplete();
-                qrc.Dispose();
+                flags |= HeaderFlags.Response;
             }
+
+            requestResult.Write(qrc.DataStream, data, typeId, flags);
+            this.requestBuffer.QueueRequest(qrc);
+            return requestResult;
         }
 
         internal async Task<TypedResult<TResponse>> ReceiveData<TResponse>(RequestResult result, CancellationToken token) where TResponse : class
@@ -431,50 +428,54 @@ namespace MS.SyncFrame
         /// <returns>A task which when complete indicates the read period of the sync is done.</returns>
         protected async Task ReadMessages()
         {
-            if (this.IsConnectionOpen)
+            this.CheckConnectionState();
+            FrameHeader frameHeader = Serializer.DeserializeWithLengthPrefix<FrameHeader>(this.RemoteStream, PrefixStyle.Base128);
+            if (frameHeader != null && frameHeader.MessageSizes != null)
             {
-                FrameHeader frameHeader = Serializer.DeserializeWithLengthPrefix<FrameHeader>(this.RemoteStream, PrefixStyle.Base128);
-                if (frameHeader != null && frameHeader.MessageSizes != null && frameHeader.Types != null)
+                try
                 {
-                    try
+                    if (frameHeader.HeaderFlags.HasFlag(FrameHeaderFlags.InternalError))
                     {
-                        byte[] readBuffer = new byte[this.ReadBufferSize];
-                        Dictionary<int, Type> typeMap = new Dictionary<int, Type>();
+                        throw new InvalidOperationException(Resources.ConnectionClosedDueToInternalError);
+                    }
+
+                    byte[] readBuffer = new byte[this.ReadBufferSize];
+                    if (frameHeader.Types != null)
+                    {
                         foreach (FrameType type in frameHeader.Types)
                         {
-                            typeMap[type.TypeId] = type.Type;
-                        }
-
-                        foreach (int size in frameHeader.MessageSizes)
-                        {
-                            this.ConnectionClosedToken.ThrowIfCancellationRequested();
-                            MessageHeader header = Serializer.DeserializeWithLengthPrefix<MessageHeader>(this.RemoteStream, PrefixStyle.Base128);
-
-                            // Now that we have the header, we can figure out what to dispatch it to (if anything)
-                            if (header.Response)
-                            {
-                                QueuedRequestResponseChunk qrc;
-                                bool gotResponse = this.requestResponseBuffer.TryGetResponse(header.RequestId, out qrc);
-                                Contract.Assert(this.canceling || gotResponse, Resources.NoSuchRequest);
-                                if (this.canceling || gotResponse)
-                                {
-                                    await this.ReadHandler(readBuffer, size, header, qrc);
-                                }
-                            }
-                            else
-                            {
-                                QueuedResponseChunk qrc = new QueuedResponseChunk(new MemoryStream(size));
-                                await this.ReadHandler(readBuffer, size, header, qrc);
-                                Type t = typeMap[header.DataTypeIndex];
-                                await this.responseBuffer.QueueResponse(t, qrc, this.ConnectionClosedToken);
-                            }
+                            this.requestTypeIdsByType[type.TypeId] = type.Type;
                         }
                     }
-                    catch (Exception)
+
+                    foreach (int size in frameHeader.MessageSizes)
                     {
-                        this.CancelTaskCompletionSources();
-                        throw;
+                        MessageHeader header = Serializer.DeserializeWithLengthPrefix<MessageHeader>(this.RemoteStream, PrefixStyle.Base128);
+
+                        // Now that we have the header, we can figure out what to dispatch it to (if anything)
+                        if (header.Flags.HasFlag(HeaderFlags.Response))
+                        {
+                            QueuedRequestResponseChunk qrc;
+                            bool gotResponse = this.requestResponseBuffer.TryGetResponse(header.RequestId, out qrc);
+                            Contract.Assert(this.canceling || gotResponse, Resources.NoSuchRequest);
+                            if (this.canceling || gotResponse)
+                            {
+                                await this.ReadHandler(readBuffer, size, header, qrc);
+                            }
+                        }
+                        else
+                        {
+                            QueuedResponseChunk qrc = new QueuedResponseChunk(new MemoryStream(size));
+                            await this.ReadHandler(readBuffer, size, header, qrc);
+                            Type t = this.requestTypeIdsByType[header.TypeId];
+                            await this.responseBuffer.QueueResponse(t, qrc, this.ConnectionClosedToken);
+                        }
                     }
+                }
+                catch (Exception ex)
+                {
+                    this.HandleInternalConnectionFailure(ex);
+                    throw;
                 }
             }
         }
@@ -496,9 +497,9 @@ namespace MS.SyncFrame
                         throw new InternalBufferOverflowException();
                     }
 
+                    FrameHeader frameHeader = new FrameHeader();
                     List<QueuedRequestChunk> outputChunks = new List<QueuedRequestChunk>();
                     LinkedList<int> sizes = new LinkedList<int>();
-                    HashSet<Type> referencedTypes = new HashSet<Type>();
                     LinkedList<FrameType> frameTypes = new LinkedList<FrameType>();
                     foreach (QueuedRequestChunk chunk in this.requestBuffer.DequeueRequests())
                     {
@@ -510,13 +511,13 @@ namespace MS.SyncFrame
                         long toWrite = chunk.DataStream.Length;
                         if (written + toWrite > max)
                         {
+                            this.requestBuffer.RequeueRequest(chunk);
                             if (written == 0)
                             {
                                 // Uh oh, we can't write this chunk. 
-                                throw new InternalBufferOverflowException();
+                                frameHeader.HeaderFlags |= FrameHeaderFlags.InternalError;
+                                this.faultingException = new InvalidOperationException(Resources.WriteBufferOverflow);
                             }
-
-                            this.requestBuffer.RequeueRequest(chunk);
                         }
                         else
                         {
@@ -526,16 +527,15 @@ namespace MS.SyncFrame
                             {
                                 outputChunks.Add(chunk);
                                 sizes.AddLast((int)toWrite);
-                                if (!referencedTypes.Contains(chunk.Type))
+                                if (!this.markedTypeIds.Contains(chunk.TypeId))
                                 {
-                                    referencedTypes.Add(chunk.Type);
+                                    this.markedTypeIds.Add(chunk.TypeId);
                                     frameTypes.AddLast(new FrameType { Type = chunk.Type, TypeId = chunk.TypeId });
                                 }
                             }
                         }
                     }
 
-                    FrameHeader frameHeader = new FrameHeader();
                     frameHeader.MessageSizes = sizes.ToArray();
                     frameHeader.Types = frameTypes.ToArray();
                     Serializer.SerializeWithLengthPrefix(this.RemoteStream, frameHeader, PrefixStyle.Base128);
@@ -543,21 +543,48 @@ namespace MS.SyncFrame
                     {
                         qrc.DataStream.Position = 0;
                         await qrc.DataStream.CopyToAsync(this.RemoteStream);
-                        qrc.Complete();
+                        qrc.Dispose();
                     }
 
                     // After writing out our fault to the remote, we fault.
-                    if (written > 0 && this.faultingTaskTcs.Task.IsCompleted)
+                    if (this.faultingException != null)
                     {
-                        await this.faultingTaskTcs.Task;
+                        this.faultingTaskTcs.SetException(this.faultingException);
+                        this.IsConnectionOpen = false;
+                        throw this.faultingException;
                     }
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    this.CancelTaskCompletionSources();
+                    this.HandleInternalConnectionFailure(ex);
                     throw;
                 }
             }
+
+            this.CheckConnectionState();
+        }
+
+        private void CheckConnectionState()
+        {
+            if (this.faultingException != null)
+            {
+                throw new ConnectionClosedException(Resources.ConnectionClosedDueToInternalError, this.faultingException);
+            }
+
+            if (!this.IsConnectionOpen)
+            {
+                throw new ConnectionClosedException(Resources.ConnectionClosed);
+            }
+
+            this.ConnectionClosedToken.ThrowIfCancellationRequested();
+        }
+
+        private void HandleInternalConnectionFailure(Exception ex)
+        {
+            this.faultingException = ex;
+            this.faultingTaskTcs.SetException(this.faultingException);
+            this.CancelTaskCompletionSources();
+            this.IsConnectionOpen = false;
         }
 
         private void CancelTaskCompletionSources()
@@ -573,18 +600,6 @@ namespace MS.SyncFrame
             this.IsConnectionOpen = false;
             this.canceling = true;
             this.CancelTaskCompletionSources();
-        }
-
-        private int GetTypeId(Type type)
-        {
-            int value;
-            if (this.typeIdsByType.TryGetValue(type, out value))
-            {
-                return value;
-            }
-
-            this.typeIdsByType.TryAdd(type, ++this.currentTypeId);
-            return this.typeIdsByType[type];
         }
 
         private async Task ReadHandler(byte[] readBuffer, int size, MessageHeader header, QueuedResponseChunk qrc)
@@ -610,7 +625,7 @@ namespace MS.SyncFrame
             }
 
             qrc.DataStream.Position = 0;
-            qrc.Complete();
+            qrc.CompleteTask.TrySetResult(true);
         }
 
         private async Task<TypedResult<TResponse>> ReceiveData<TResponse>(QueuedResponseChunk qrc) where TResponse : class
@@ -618,8 +633,23 @@ namespace MS.SyncFrame
             Contract.Requires(qrc != null);
             try
             {
-                await qrc.ResponseComplete();
-                return new TypedResult<TResponse>(this, typeof(TResponse), qrc.Header, qrc.DataStream);
+                await Task.Factory.ContinueWhenAny(new Task[] { qrc.ResponseComplete(), this.faultingTaskTcs.Task }, (t) => { });
+                if (this.faultingTaskTcs.Task.IsCompleted)
+                {
+                    throw new ConnectionClosedException(Resources.ConnectionClosedDueToInternalError, this.faultingException);
+                }
+                else
+                {
+                    await qrc.ResponseComplete();
+                    return new TypedResult<TResponse>(this, typeof(TResponse), qrc.Header, qrc.DataStream);
+                }
+            }
+            catch (Exception ex)
+            {
+                this.faultingException = ex;
+                this.faultingTaskTcs.TrySetException(this.faultingException);
+                this.IsConnectionOpen = false;
+                throw;
             }
             finally
             {

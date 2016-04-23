@@ -41,7 +41,7 @@ namespace MS.SyncFrame.Tests
             clientTransport = new MessageClient(clientStream, cts.Token);
             clientListener = clientTransport.Open();
             clientTransport.MinDelay = TimeSpan.FromMilliseconds(10);
-            serverTransport.MaxFrameSize = clientTransport.MaxFrameSize = 12;
+            serverTransport.MaxFrameSize = clientTransport.MaxFrameSize = 24;
         }
 
         [TestCleanup]

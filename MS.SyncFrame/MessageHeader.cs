@@ -9,19 +9,24 @@ namespace MS.SyncFrame
     using System;
     using ProtoBuf;
 
+    [Flags]
+    internal enum HeaderFlags
+    {
+        None = 0x0,
+        Faulted = 0x1,
+        Response = 0x2
+    }
+
     [ProtoContract]
     internal class MessageHeader
     {
-        [ProtoMember(1, DataFormat = DataFormat.ZigZag)]
+        [ProtoMember(1, DataFormat = DataFormat.FixedSize)]
         internal int RequestId { get; set; }
 
         [ProtoMember(2)]
-        internal int DataTypeIndex { get; set; }
+        internal int TypeId { get; set; }
 
         [ProtoMember(3)]
-        internal bool Faulted { get; set; }
-
-        [ProtoMember(4)]
-        internal bool Response { get; set; }
+        internal HeaderFlags Flags { get; set; }
     }
 }

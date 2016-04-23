@@ -12,12 +12,22 @@ namespace MS.SyncFrame
 
     internal class QueuedResponseChunk : QueuedChunk
     {
+        private TaskCompletionSource<bool> completeTask = new TaskCompletionSource<bool>();
         private MessageHeader header;
+        private bool disposed = false;
 
         internal QueuedResponseChunk(Stream dataStream)
             : base(dataStream)
         {
             Contract.Requires(dataStream != null);
+        }
+
+        internal TaskCompletionSource<bool> CompleteTask
+        {
+            get
+            {
+                return this.completeTask;
+            }
         }
 
         internal MessageHeader Header
@@ -36,7 +46,25 @@ namespace MS.SyncFrame
 
         internal virtual async Task ResponseComplete()
         {
-            await this.CompleteTask.Task;
+            bool result = await this.CompleteTask.Task;
+            Contract.Assert(result == true);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+
+            if (!this.disposed)
+            {
+                this.disposed = true;
+                if (disposing)
+                {
+                    if (this.completeTask != null)
+                    {
+                        this.completeTask.TrySetCanceled();
+                    }
+                }
+            }
         }
     }
 }
