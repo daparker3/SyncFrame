@@ -97,6 +97,15 @@ namespace MS.SyncFrame.Properties {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to The connection was closed..
+        /// </summary>
+        internal static string ConnectionClosed {
+            get {
+                return ResourceManager.GetString("ConnectionClosed", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to No such request..
         /// </summary>
         internal static string NoSuchRequest {

@@ -6,6 +6,7 @@
 
 namespace MS.SyncFrame
 {
+    using System;
     using System.Diagnostics.Contracts;
     using System.Threading;
     using System.Threading.Tasks;
@@ -16,10 +17,13 @@ namespace MS.SyncFrame
         {
             Contract.Requires(waitHandle != null);
             TaskCompletionSource<bool> waitedTcs = new TaskCompletionSource<bool>();
-            RegisteredWaitHandle rwh = ThreadPool.RegisterWaitForSingleObject(waitHandle, (o, e) => waitedTcs.SetResult(true), null, -1, true);
+            RegisteredWaitHandle rwh = ThreadPool.RegisterWaitForSingleObject(waitHandle, (o, e) => waitedTcs.TrySetResult(true), null, -1, true);
             try
             {
                 await waitedTcs.Task;
+            }
+            catch (Exception)
+            {
             }
             finally
             {

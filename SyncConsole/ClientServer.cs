@@ -17,56 +17,76 @@ namespace SyncConsole
 
     internal static class ClientServer
     {
-        internal static Task CreateListenTask(Stream serverStream, int responseSize)
+        internal static async Task CreateListenTask(Stream serverStream, ListenArgs listenArgs)
         {
-            return Task.Factory.StartNew(async () =>
+            Random r = new Random();
+            using (CancellationTokenSource cts = new CancellationTokenSource())
+            using (MessageServer server = new MessageServer(serverStream, cts.Token))
             {
-                Random r = new Random();
-                using (CancellationTokenSource cts = new CancellationTokenSource())
-                using (MessageServer server = new MessageServer(serverStream, cts.Token))
+                Task sessionTask = server.Open();
+
+                while (server.IsConnectionOpen)
                 {
-                    Task sessionTask = server.Open();
-
-                    while (server.IsConnectionOpen)
-                    {
-                        byte[] responseData = new byte[responseSize];
-                        r.NextBytes(responseData);
-                        TypedResult<Message> request = await server.ReceiveData<Message>();
-                        await request.SendData(new Message { Data = responseData });
-                    }
-
-                    cts.Cancel();
-                    await sessionTask;
+                    byte[] responseData = new byte[listenArgs.ResponseSize];
+                    r.NextBytes(responseData);
+                    TypedResult<Message> request = await server.ReceiveData<Message>();
+                    await request.SendData(new Message { Data = responseData });
                 }
-            });
+
+                cts.Cancel();
+                await sessionTask;
+            }
         }
 
-        internal static Task CreateTransmitTask(NetworkStream clientStream, TimeSpan frameDelay, int numRequests, int requestSize)
+        internal static async Task<double> CreateTransmitTask(NetworkStream clientStream, TransmitArgs transmitArgs)
         {
-            return Task.Factory.StartNew(async () =>
+            if (transmitArgs.NumIterations == 0)
             {
-                Random r = new Random();
-                using (CancellationTokenSource cts = new CancellationTokenSource())
-                using (MessageClient client = new MessageClient(clientStream, cts.Token))
-                {
-                    client.MinDelay = frameDelay;
-                    Task sessionTask = client.Open();
+                return 0.0;
+            }
 
-                    for (int i = 0; i < numRequests; ++i)
+            Random r = new Random();
+            using (CancellationTokenSource cts = new CancellationTokenSource())
+            using (MessageClient client = new MessageClient(clientStream, cts.Token))
+            {
+                double latency = 0.0;
+                client.MinDelay = transmitArgs.FrameDelay;
+                Task sessionTask = client.Open();
+
+                for (int j = 0; j < transmitArgs.NumIterations; ++j)
+                {
+                    List<Task<RequestResult>> requests = new List<Task<RequestResult>>(transmitArgs.NumRequests);
+                    for (int i = 0; i < transmitArgs.NumRequests; ++i)
                     {
                         // Do something with the message.
-                        byte[] requestData = new byte[requestSize];
+                        byte[] requestData = new byte[transmitArgs.RequestSize];
                         r.NextBytes(requestData);
                         Message requestMessage = new Message { Data = requestData };
-                        Message responseMessage = await client.SendData(requestMessage)
-                                                              .ReceiveData<Message>()
-                                                              .Complete();
+                        requests.Add(client.SendData(requestMessage));
                     }
 
-                    cts.Cancel();
-                    await sessionTask;
+                    for (int i = 0; i < transmitArgs.NumRequests; ++i)
+                    {
+                        await requests[i].ReceiveData<Message>().Complete();
+                    }
+
+                    latency += (await client.GetLatencySpan()).TotalMilliseconds;
                 }
-            });
+
+                cts.Cancel();
+                return latency / (double)transmitArgs.NumIterations;
+            }
+        }
+
+        private static async Task<double> SumUnusedLatency(MessageClient client, CancellationToken token)
+        {
+            double latency = 0.0;
+            while (!token.IsCancellationRequested)
+            {
+                latency += (await client.GetLatencySpan()).TotalMilliseconds;
+            }
+
+            return latency;
         }
 
         [ProtoContract]

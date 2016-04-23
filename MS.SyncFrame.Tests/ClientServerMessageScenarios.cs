@@ -30,23 +30,10 @@ namespace MS.SyncFrame.Tests
         [TestInitialize]
         public void TestInitialize()
         {
-            for (;;)
-            {
-                Thread.Sleep(200);
-                try
-                {
-                    server = new TcpListener(IPAddress.Loopback, 60003);
-                    server.Start();
-                    client = new TcpClient();
-                    client.Connect(new IPEndPoint(IPAddress.Loopback, 60003));
-                }
-                catch (Exception)
-                {
-                    continue;
-                }
-
-                break;
-            }
+            server = new TcpListener(IPAddress.Loopback, 60003);
+            server.Start();
+            client = new TcpClient();
+            client.Connect(new IPEndPoint(IPAddress.Loopback, 60003));
             serverStream = client.GetStream();
             clientStream = server.AcceptTcpClient().GetStream();
             serverTransport = new MessageServer(serverStream, cts.Token);

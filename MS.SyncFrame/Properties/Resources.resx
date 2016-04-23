@@ -129,6 +129,9 @@
   <data name="ConnectionAlreadyOpened" xml:space="preserve">
     <value>The transport connection was already opened.</value>
   </data>
+  <data name="ConnectionClosed" xml:space="preserve">
+    <value>The connection was closed.</value>
+  </data>
   <data name="NoSuchRequest" xml:space="preserve">
     <value>No such request.</value>
   </data>

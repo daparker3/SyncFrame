@@ -59,6 +59,7 @@
     <Compile Include="ConcurrentRequestBuffer.cs" />
     <Compile Include="ConcurrentRequestResponseBuffer.cs" />
     <Compile Include="ConcurrentResponseBuffer.cs" />
+    <Compile Include="ConnectionClosedException.cs" />
     <Compile Include="FaultException.cs" />
     <Compile Include="FrameHeader.cs" />
     <Compile Include="FrameType.cs" />

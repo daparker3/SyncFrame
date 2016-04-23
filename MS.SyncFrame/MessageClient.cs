@@ -10,6 +10,7 @@ namespace MS.SyncFrame
     using System.Threading;
     using System.Threading.Tasks;
     using EnsureThat;
+    using Properties;
 
     /// <summary>
     /// A message client represents the requester in a client-server messaging session.
@@ -97,8 +98,7 @@ namespace MS.SyncFrame
         /// <remarks>
         /// This can be overridden in child classes to provide additional open behavior.
         /// </remarks>
-        /// <exception cref="OperationCanceledException">Occurs if the session was canceled.</exception>
-        /// <exception cref="FaultException{TFault}">Occurs if a response to a remote request generates a fault.</exception>
+        /// <exception cref="ConnectionClosedException">Occurs if the connection was closed.</exception>
         public override async Task Open()
         {
             try
@@ -116,10 +116,10 @@ namespace MS.SyncFrame
                     this.latencyGapMeasurementTcs = new TaskCompletionSource<TimeSpan>();
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
                 this.latencyGapMeasurementTcs.TrySetCanceled();
-                throw;
+                throw new ConnectionClosedException(Resources.ConnectionClosed, ex);
             }
             finally
             {
