@@ -143,16 +143,14 @@ namespace MS.SyncFrame.Tests
             Assert.AreEqual(frameHeader.Types.Length, frameHeader2.Types.Length);
             Assert.AreEqual(frameHeader.Types[0].Type, frameHeader2.Types[0].Type);
             MessageHeader messageHeader = new MessageHeader();
-            messageHeader.DataTypeIndex = 1;
-            messageHeader.Faulted = false;
+            messageHeader.TypeId = 1;
             messageHeader.RequestId = 2;
-            messageHeader.Response = true;
+            messageHeader.Flags = HeaderFlags.Faulted;
             Serializer.SerializeWithLengthPrefix(clientStream, messageHeader, PrefixStyle.Base128);
             MessageHeader messageHeader2 = Serializer.DeserializeWithLengthPrefix<MessageHeader>(serverStream, PrefixStyle.Base128);
-            Assert.AreEqual(messageHeader.DataTypeIndex, messageHeader2.DataTypeIndex);
-            Assert.AreEqual(messageHeader.Faulted, messageHeader2.Faulted);
+            Assert.AreEqual(messageHeader.TypeId, messageHeader2.TypeId);
             Assert.AreEqual(messageHeader.RequestId, messageHeader2.RequestId);
-            Assert.AreEqual(messageHeader.Response, messageHeader2.Response);
+            Assert.AreEqual(messageHeader.Flags, messageHeader2.Flags);
         }
 
         [TestMethod()]
@@ -174,8 +172,8 @@ namespace MS.SyncFrame.Tests
             {
                 Message msg = new Message { Data = i };
                 Task<RequestResult> clientRequestTask = outTransport.SendData(msg);
-                await StepWrite();
                 RequestResult clientRequest = await clientRequestTask;
+                await StepWrite();
                 TypedResult<Message> serverRequest = await inTransport.ReceiveData<Message>();
                 await StepRead();
                 Assert.AreEqual(msg.Data, serverRequest.Data.Data);
@@ -195,8 +193,8 @@ namespace MS.SyncFrame.Tests
             {
                 Message request = new Message { Data = i };
                 Task<RequestResult> clientRequest = outTransport.SendData(request);
-                await StepWrite();
                 await clientRequest;
+                await StepWrite();
                 TypedResult<Message> serverRequest = await inTransport.ReceiveData<Message>();
                 Task<Result> serverResponseTask = serverRequest.SendData(request);
                 await StepRead();
@@ -216,10 +214,11 @@ namespace MS.SyncFrame.Tests
 
             Message request = new Message { Data = -1 };
             Task<RequestResult> clientRequest = outTransport.SendData(request);
-            await StepWrite();
             await clientRequest;
+            await StepWrite();
             TypedResult<Message> serverRequest = await inTransport.ReceiveData<Message>();
             Task<FaultException<Message>> faultExTask = serverRequest.SendFault(request);
+            await faultExTask;
             await StepRead();
             FaultException<Message> faultEx = await faultExTask;
             Assert.IsNotNull(faultEx);

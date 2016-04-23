@@ -34,14 +34,13 @@ namespace MS.SyncFrame
             this.localTransport = localTransport;
             this.remote = true;
             this.requestId = header.RequestId;
-            if (header.Faulted)
+            if (header.Flags.HasFlag(HeaderFlags.Faulted))
             {
                 MethodInfo faultDeserializer = deserializeMethod.MakeGenericMethod(dataType);
                 object faultObject = faultDeserializer.Invoke(null, new object[] { s, PrefixStyle.Base128 });
                 Type faultExceptionType = typeof(FaultException<>).MakeGenericType(dataType);
                 ConstructorInfo faultExceptionConstructor = faultExceptionType.GetConstructor(new Type[] { typeof(Result), dataType });
                 Exception faultEx = faultExceptionConstructor.Invoke(new object[] { this, faultObject }) as Exception;
-                this.localTransport.SetFault(faultEx);
                 throw faultEx;
             }
         }
@@ -97,12 +96,12 @@ namespace MS.SyncFrame
         /// <param name="data">The data.</param>
         /// <returns>A <see cref="Task{Result}"/> which completes with the message when sent.</returns>
         /// <remarks>See the <see cref="MessageTransport.SendData{TRequest}(TRequest)"/> method for a list of exceptions that can be thrown.</remarks>
-        public async Task<Result> SendData<TResponse>(TResponse data) where TResponse : class
+        public Task<Result> SendData<TResponse>(TResponse data) where TResponse : class
         {
             Ensure.That(data, "data").IsNotNull();
             Contract.Requires(this.LocalTransport != null);
             Contract.Requires(this.Remote);
-            return await this.LocalTransport.SendData(this, data);
+            return Task.Run(() => this.LocalTransport.SendData(this, data));
         }
 
         /// <summary>
@@ -111,25 +110,24 @@ namespace MS.SyncFrame
         /// <typeparam name="TFault">The type of the fault.</typeparam>
         /// <param name="fault">The fault.</param>
         /// <returns>A <see cref="Task{FaultException}"/> which contains information about the fault and can be thrown to terminate the session.</returns>
-        public async Task<FaultException<TFault>> SendFault<TFault>(TFault fault) where TFault : class
+        public Task<FaultException<TFault>> SendFault<TFault>(TFault fault) where TFault : class
         {
             Ensure.That(fault, "fault").IsNotNull();
             Contract.Requires(this.LocalTransport != null);
             Contract.Requires(this.Remote);
-            return await this.LocalTransport.SendFault(this, fault);
+            return Task.Run(() => this.LocalTransport.SendFault(this, fault));
         }
 
-        internal void Write<T>(Stream s, T value, int typeIndex, bool isFault, bool isResponse) where T : class
+        internal void Write<T>(Stream s, T value, int typeId, HeaderFlags flags) where T : class
         {
             Contract.Requires(s != null);
             Contract.Requires(value != null);
-            Contract.Requires(typeIndex > 0);
+            Contract.Requires(typeId > 0);
             MessageHeader header = new MessageHeader
             {
-                Faulted = isFault,
-                Response = isResponse,
+                Flags = flags,
                 RequestId = this.requestId,
-                DataTypeIndex = typeIndex
+                TypeId = typeId
             };
             
             Serializer.SerializeWithLengthPrefix(s, header, PrefixStyle.Base128);

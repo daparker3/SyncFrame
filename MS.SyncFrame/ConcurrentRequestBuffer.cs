@@ -6,6 +6,7 @@
 
 namespace MS.SyncFrame
 {
+    using System;
     using System.Collections.Concurrent;
     using System.Collections.Generic;
     using System.Diagnostics.Contracts;
@@ -14,7 +15,9 @@ namespace MS.SyncFrame
     {
         private const int SizeRequestChunkRetryBuckets = 10;
         private ConcurrentBag<QueuedRequestChunk>[] queuedRequestChunks = new ConcurrentBag<QueuedRequestChunk>[SizeRequestChunkRetryBuckets];
+        private ConcurrentDictionary<Type, int> typeIdsByType = new ConcurrentDictionary<Type, int>();
         private int queueIndex;
+        private int currentTypeId = 0;
         private bool isDequeing;
 
         internal ConcurrentRequestBuffer()
@@ -37,6 +40,18 @@ namespace MS.SyncFrame
 
                 return count;
             }
+        }
+
+        internal int GetTypeId(Type type)
+        {
+            int value;
+            if (this.typeIdsByType.TryGetValue(type, out value))
+            {
+                return value;
+            }
+
+            this.typeIdsByType.TryAdd(type, ++this.currentTypeId);
+            return this.typeIdsByType[type];
         }
 
         internal void QueueRequest(QueuedRequestChunk item)

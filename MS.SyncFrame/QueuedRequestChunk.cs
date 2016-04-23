@@ -25,10 +25,5 @@ namespace MS.SyncFrame
         internal int TypeId { get; set; }
 
         internal Type Type { get; set; }
-
-        internal virtual async Task ResponseComplete()
-        {
-            await this.CompleteTask.Task;
-        }
     }
 }

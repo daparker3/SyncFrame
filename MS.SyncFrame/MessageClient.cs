@@ -116,10 +116,10 @@ namespace MS.SyncFrame
                     this.latencyGapMeasurementTcs = new TaskCompletionSource<TimeSpan>();
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 this.latencyGapMeasurementTcs.TrySetCanceled();
-                throw new ConnectionClosedException(Resources.ConnectionClosed, ex);
+                throw;
             }
             finally
             {
