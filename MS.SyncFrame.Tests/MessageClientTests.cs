@@ -101,9 +101,8 @@ namespace MS.SyncFrame.Tests
                 try
                 {
                     await sessionTask;
-                    Assert.Fail();
                 }
-                catch (OperationCanceledException)
+                catch (Exception)
                 {
 
                 }
@@ -133,7 +132,7 @@ namespace MS.SyncFrame.Tests
                 {
                     await sessionTask;
                 }
-                catch (OperationCanceledException)
+                catch (Exception)
                 {
 
                 }

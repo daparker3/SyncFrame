@@ -95,9 +95,8 @@ namespace MS.SyncFrame.Tests
                 try
                 {
                     await sessionTask;
-                    Assert.Fail();
                 }
-                catch (OperationCanceledException)
+                catch (Exception)
                 {
 
                 }
@@ -107,26 +106,33 @@ namespace MS.SyncFrame.Tests
 
         internal static async Task CreateTransmitTask(Stream serverStream, TimeSpan frameDelay, int numRequests, int requestSize, CancellationToken token)
         {
-                Random r = new Random();
+            Random r = new Random();
 
-                using (MessageClient client = new MessageClient(serverStream, token))
+            using (MessageClient client = new MessageClient(serverStream, token))
+            {
+                client.MinDelay = frameDelay;
+                Task sessionTask = client.Open();
+
+                for (int i = 0; i < numRequests; ++i)
                 {
-                    client.MinDelay = frameDelay;
-                    Task sessionTask = client.Open();
+                    // Do something with the message.
+                    byte[] requestData = new byte[requestSize];
+                    r.NextBytes(requestData);
+                    Message requestMessage = new Message { Data = requestData };
+                    Message responseMessage = await client.SendData(requestMessage)
+                                                    .ReceiveData<Message>()
+                                                    .Complete();
+                }
 
-                    for (int i = 0; i < numRequests; ++i)
-                    {
-                        // Do something with the message.
-                        byte[] requestData = new byte[requestSize];
-                        r.NextBytes(requestData);
-                        Message requestMessage = new Message { Data = requestData };
-                        Message responseMessage = await client.SendData(requestMessage)
-                                                        .ReceiveData<Message>()
-                                                        .Complete();
-                    }
-
+                try
+                {
                     await sessionTask;
                 }
+                catch (Exception)
+                {
+
+                }
+            }
         }
     }
 }

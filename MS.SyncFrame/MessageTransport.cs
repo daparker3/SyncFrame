@@ -411,7 +411,6 @@ namespace MS.SyncFrame
                     if (this.responseBuffer != null)
                     {
                         this.responseBuffer.Dispose();
-                        this.responseBuffer = null;
                     }
 
                     this.connectionClosedTokenRegistration.Dispose();
@@ -439,29 +438,28 @@ namespace MS.SyncFrame
                             typeMap[type.TypeId] = type.Type;
                         }
 
-                        Contract.Assert(frameHeader != null);
-                        if (frameHeader.MessageSizes != null)
+                        foreach (int size in frameHeader.MessageSizes)
                         {
-                            foreach (int size in frameHeader.MessageSizes)
-                            {
-                                this.ConnectionClosedToken.ThrowIfCancellationRequested();
-                                MessageHeader header = Serializer.DeserializeWithLengthPrefix<MessageHeader>(this.RemoteStream, PrefixStyle.Base128);
+                            this.ConnectionClosedToken.ThrowIfCancellationRequested();
+                            MessageHeader header = Serializer.DeserializeWithLengthPrefix<MessageHeader>(this.RemoteStream, PrefixStyle.Base128);
 
-                                // Now that we have the header, we can figure out what to dispatch it to (if anything)
-                                if (header.Response)
+                            // Now that we have the header, we can figure out what to dispatch it to (if anything)
+                            if (header.Response)
+                            {
+                                QueuedRequestResponseChunk qrc;
+                                bool gotResponse = this.requestResponseBuffer.TryGetResponse(header.RequestId, out qrc);
+                                Contract.Assert(gotResponse, Resources.NoSuchRequest);
+                                if (gotResponse)
                                 {
-                                    QueuedRequestResponseChunk qrc;
-                                    bool gotResponse = this.requestResponseBuffer.TryGetResponse(header.RequestId, out qrc);
-                                    Contract.Assert(gotResponse, Resources.NoSuchRequest);
                                     await this.ReadHandler(readBuffer, size, header, qrc);
                                 }
-                                else
-                                {
-                                    QueuedResponseChunk qrc = new QueuedResponseChunk(new MemoryStream(size));
-                                    await this.ReadHandler(readBuffer, size, header, qrc);
-                                    Type t = typeMap[header.DataTypeIndex];
-                                    await this.responseBuffer.QueueResponse(t, qrc, this.ConnectionClosedToken);
-                                }
+                            }
+                            else
+                            {
+                                QueuedResponseChunk qrc = new QueuedResponseChunk(new MemoryStream(size));
+                                await this.ReadHandler(readBuffer, size, header, qrc);
+                                Type t = typeMap[header.DataTypeIndex];
+                                await this.responseBuffer.QueueResponse(t, qrc, this.ConnectionClosedToken);
                             }
                         }
                     }
@@ -497,6 +495,11 @@ namespace MS.SyncFrame
                     LinkedList<FrameType> frameTypes = new LinkedList<FrameType>();
                     foreach (QueuedRequestChunk chunk in this.requestBuffer.DequeueRequests())
                     {
+                        if (chunk == null)
+                        {
+                            break;
+                        }
+
                         long toWrite = chunk.DataStream.Length;
                         if (written + toWrite > max)
                         {
@@ -512,12 +515,15 @@ namespace MS.SyncFrame
                         {
                             written += toWrite;
                             Contract.Assert(chunk.DataStream.Length == (int)chunk.DataStream.Length);
-                            outputChunks.Add(chunk);
-                            sizes.AddLast((int)toWrite);
-                            if (!referencedTypes.Contains(chunk.Type))
+                            if (chunk.DataStream.Length == (int)chunk.DataStream.Length)
                             {
-                                referencedTypes.Add(chunk.Type);
-                                frameTypes.AddLast(new FrameType { Type = chunk.Type, TypeId = chunk.TypeId });
+                                outputChunks.Add(chunk);
+                                sizes.AddLast((int)toWrite);
+                                if (!referencedTypes.Contains(chunk.Type))
+                                {
+                                    referencedTypes.Add(chunk.Type);
+                                    frameTypes.AddLast(new FrameType { Type = chunk.Type, TypeId = chunk.TypeId });
+                                }
                             }
                         }
                     }

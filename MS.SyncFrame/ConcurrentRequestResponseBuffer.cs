@@ -31,17 +31,21 @@ namespace MS.SyncFrame
             Contract.Requires(dataStream != null);
             bool hasRequest = this.pendingResponsesByRequest.ContainsKey(requestId);
             Contract.Assert(!hasRequest, Resources.TooManyRequests);
+            if (!hasRequest)
+            {
+                // This request originates from us; set up our response handler.
+                QueuedRequestResponseChunk responseChunk = new QueuedRequestResponseChunk(dataStream);
 
-            // This request originates from us; set up our response handler.
-            QueuedRequestResponseChunk responseChunk = new QueuedRequestResponseChunk(dataStream);
+                //// To prevent the response chunk going out of scope before the user can get it, we reference it in our
+                //// return value. That way, if it actually does go out of scope we can catch it with a runtime error.
+                WeakReference<QueuedRequestResponseChunk> responseWeakRef = new WeakReference<QueuedRequestResponseChunk>(responseChunk);
+                hasRequest = this.pendingResponsesByRequest.TryAdd(requestId, responseWeakRef);
+                Contract.Assert(hasRequest, Resources.TheResponseWasCompletedMultipleTimes);
+                responseChunk.PostCompleteTask = responseChunk.CompleteTask.Task.ContinueWith((t) => this.PostComplete(responseWeakRef, requestId));
+                return responseChunk;
+            }
 
-            //// To prevent the response chunk going out of scope before the user can get it, we reference it in our
-            //// return value. That way, if it actually does go out of scope we can catch it with a runtime error.
-            WeakReference<QueuedRequestResponseChunk> responseWeakRef = new WeakReference<QueuedRequestResponseChunk>(responseChunk);
-            hasRequest = this.pendingResponsesByRequest.TryAdd(requestId, responseWeakRef);
-            Contract.Assert(hasRequest, Resources.TheResponseWasCompletedMultipleTimes);
-            responseChunk.PostCompleteTask = responseChunk.CompleteTask.Task.ContinueWith((t) => this.PostComplete(responseWeakRef, requestId));
-            return responseChunk;
+            return null;
         }
 
         internal bool TryGetResponse(int requestId, out QueuedRequestResponseChunk qrc)

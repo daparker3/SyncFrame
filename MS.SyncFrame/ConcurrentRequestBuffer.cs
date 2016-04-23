@@ -49,39 +49,46 @@ namespace MS.SyncFrame
         {
             Contract.Requires(item != null);
             Contract.Assert(this.isDequeing);
-            if (this.queueIndex == this.queuedRequestChunks.Length - 1)
+            if (this.isDequeing)
             {
-                this.queuedRequestChunks[this.queueIndex].Add(item);
-            }
-            else
-            {
-                this.queuedRequestChunks[this.queueIndex + 1].Add(item);
+                if (this.queueIndex == this.queuedRequestChunks.Length - 1)
+                {
+                    this.queuedRequestChunks[this.queueIndex].Add(item);
+                }
+                else
+                {
+                    this.queuedRequestChunks[this.queueIndex + 1].Add(item);
+                }
             }
         }
 
         internal IEnumerable<QueuedRequestChunk> DequeueRequests()
         {
             Contract.Assert(!this.isDequeing);
-            Contract.Ensures(this.isDequeing == false);
-            Contract.Ensures(this.queueIndex >= 0);
-            this.isDequeing = true;
-
-            try
+            if (!this.isDequeing)
             {
-                for (int j = this.queuedRequestChunks.Length - 1; j >= 0; --j)
+                Contract.Ensures(this.queueIndex >= 0);
+                this.isDequeing = true;
+
+                try
                 {
-                    this.queueIndex = j;
-                    QueuedRequestChunk chunk;
-                    if (this.queuedRequestChunks[j].TryTake(out chunk))
+                    for (int j = this.queuedRequestChunks.Length - 1; j >= 0; --j)
                     {
-                        yield return chunk;
+                        this.queueIndex = j;
+                        QueuedRequestChunk chunk;
+                        if (this.queuedRequestChunks[j].TryTake(out chunk))
+                        {
+                            yield return chunk;
+                        }
                     }
                 }
+                finally
+                {
+                    this.isDequeing = false;
+                }
             }
-            finally
-            {
-                this.isDequeing = false;
-            }
+
+            yield return null;
         }
 
         internal void CancelRequests()
