@@ -53,6 +53,7 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Channels\MultiplexedStreamFactoryTests.cs" />
     <Compile Include="ClientServerMessageScenarios.cs" />
     <Compile Include="FaultExceptionTFaultTest.cs" />
     <Compile Include="MessageClientTests.cs" />

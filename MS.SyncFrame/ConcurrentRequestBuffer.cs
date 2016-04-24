@@ -82,7 +82,7 @@ namespace MS.SyncFrame
             Contract.Assert(!this.isDequeing);
             if (!this.isDequeing)
             {
-                Contract.Ensures(this.queueIndex >= 0);
+                Contract.Requires(this.queueIndex >= 0);
                 this.isDequeing = true;
 
                 try

@@ -115,7 +115,8 @@ namespace MS.SyncFrame
                             await delayTask;
                             this.latencyGapMeasurementTcs.SetResult(DateTime.Now - gapStart);
                             this.latencyGapMeasurementTcs = new TaskCompletionSource<TimeSpan>();
-                        });
+                        },
+                        this.ConnectionClosedToken);
                 }
             }
             catch (Exception)

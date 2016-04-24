@@ -52,6 +52,11 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Channels\PendingWriteChunk.cs" />
+    <Compile Include="Channels\MultiplexedDataHeader.cs" />
+    <Compile Include="Channels\MultiplexedStream.cs" />
+    <Compile Include="Channels\MultiplexedStreamFactory.cs" />
+    <Compile Include="Channels\NamespaceDoc.cs" />
     <Compile Include="ConcurrentRequestBuffer.cs" />
     <Compile Include="ConcurrentRequestResponseBuffer.cs" />
     <Compile Include="ConcurrentResponseBuffer.cs" />

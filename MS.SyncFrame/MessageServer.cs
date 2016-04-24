@@ -79,7 +79,8 @@ namespace MS.SyncFrame
                 {
                     await Task.Factory.ContinueWhenAll(
                         new Task[] { this.ReadMessages(), this.WriteMessages() }, 
-                        (t) => { });
+                        (t) => { },
+                        this.ConnectionClosedToken);
                 }
             }
             finally

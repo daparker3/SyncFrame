@@ -7,7 +7,6 @@
 namespace MS.SyncFrame
 {
     using System;
-    using System.Collections.Concurrent;
     using System.Collections.Generic;
     using System.Diagnostics.Contracts;
     using System.IO;
@@ -36,9 +35,13 @@ namespace MS.SyncFrame
         private HashSet<int> markedTypeIds = new HashSet<int>();
         private Dictionary<int, Type> requestTypeIdsByType = new Dictionary<int, Type>();
         private Exception faultingException = null;
+        private List<QueuedRequestChunk> writeChunks = new List<QueuedRequestChunk>();
+        private List<int> writeSizes = new List<int>();
+        private List<FrameType> writeTypes = new List<FrameType>();
         private int maxFrameSize = 0;
         private int currentRequest = 0;
         private int readBufferSize = 1 << 12;
+        private byte[] readBuffer;
         private bool disposed = false;
         private bool canceling = false;
 
@@ -53,6 +56,7 @@ namespace MS.SyncFrame
             this.RemoteStream = remoteStream;
             this.MaxFrameSize = int.MaxValue;
             this.connectionClosedToken = token;
+            this.readBuffer = new byte[this.readBufferSize];
         }
 
         /// <summary>
@@ -121,6 +125,7 @@ namespace MS.SyncFrame
             {
                 Ensure.That(value, "value").IsGt(0);
                 this.readBufferSize = value;
+                this.readBuffer = new byte[this.readBufferSize];
             }
         }
 
@@ -306,7 +311,7 @@ namespace MS.SyncFrame
         /// <exception cref="OperationCanceledException">Occurs if the session was canceled.</exception>
         public virtual Task Open()
         {
-            Contract.Ensures(!this.IsConnectionOpen, Resources.ConnectionAlreadyOpened);
+            Contract.Requires(!this.IsConnectionOpen, Resources.ConnectionAlreadyOpened);
             this.IsConnectionOpen = true;
             this.connectionClosedTokenRegistration = this.connectionClosedToken.Register(this.ConnectionClosedHandler);
             return Task.Run(() =>
@@ -439,7 +444,6 @@ namespace MS.SyncFrame
                         throw new InvalidOperationException(Resources.ConnectionClosedDueToInternalError);
                     }
 
-                    byte[] readBuffer = new byte[this.ReadBufferSize];
                     if (frameHeader.Types != null)
                     {
                         foreach (FrameType type in frameHeader.Types)
@@ -460,13 +464,13 @@ namespace MS.SyncFrame
                             Contract.Assert(this.canceling || gotResponse, Resources.NoSuchRequest);
                             if (this.canceling || gotResponse)
                             {
-                                await this.ReadHandler(readBuffer, size, header, qrc);
+                                await this.ReadHandler(size, header, qrc);
                             }
                         }
                         else
                         {
                             QueuedResponseChunk qrc = new QueuedResponseChunk(new MemoryStream(size));
-                            await this.ReadHandler(readBuffer, size, header, qrc);
+                            await this.ReadHandler(size, header, qrc);
                             Type t = this.requestTypeIdsByType[header.TypeId];
                             await this.responseBuffer.QueueResponse(t, qrc, this.ConnectionClosedToken);
                         }
@@ -498,9 +502,9 @@ namespace MS.SyncFrame
                     }
 
                     FrameHeader frameHeader = new FrameHeader();
-                    List<QueuedRequestChunk> outputChunks = new List<QueuedRequestChunk>();
-                    LinkedList<int> sizes = new LinkedList<int>();
-                    LinkedList<FrameType> frameTypes = new LinkedList<FrameType>();
+                    this.writeChunks.Clear();
+                    this.writeSizes.Clear();
+                    this.writeTypes.Clear();
                     foreach (QueuedRequestChunk chunk in this.requestBuffer.DequeueRequests())
                     {
                         if (chunk == null)
@@ -525,24 +529,24 @@ namespace MS.SyncFrame
                             Contract.Assert(chunk.DataStream.Length == (int)chunk.DataStream.Length);
                             if (chunk.DataStream.Length == (int)chunk.DataStream.Length)
                             {
-                                outputChunks.Add(chunk);
-                                sizes.AddLast((int)toWrite);
+                                this.writeChunks.Add(chunk);
+                                this.writeSizes.Add((int)toWrite);
                                 if (!this.markedTypeIds.Contains(chunk.TypeId))
                                 {
                                     this.markedTypeIds.Add(chunk.TypeId);
-                                    frameTypes.AddLast(new FrameType { Type = chunk.Type, TypeId = chunk.TypeId });
+                                    this.writeTypes.Add(new FrameType { Type = chunk.Type, TypeId = chunk.TypeId });
                                 }
                             }
                         }
                     }
 
-                    frameHeader.MessageSizes = sizes.ToArray();
-                    frameHeader.Types = frameTypes.ToArray();
+                    frameHeader.MessageSizes = this.writeSizes.ToArray();
+                    frameHeader.Types = this.writeTypes.ToArray();
                     Serializer.SerializeWithLengthPrefix(this.RemoteStream, frameHeader, PrefixStyle.Base128);
-                    foreach (QueuedRequestChunk qrc in outputChunks)
+                    foreach (QueuedRequestChunk qrc in this.writeChunks)
                     {
                         qrc.DataStream.Position = 0;
-                        await qrc.DataStream.CopyToAsync(this.RemoteStream);
+                        await qrc.DataStream.CopyToAsync(this.RemoteStream, 81920, this.connectionClosedToken);
                         qrc.Dispose();
                     }
 
@@ -602,7 +606,7 @@ namespace MS.SyncFrame
             this.CancelTaskCompletionSources();
         }
 
-        private async Task ReadHandler(byte[] readBuffer, int size, MessageHeader header, QueuedResponseChunk qrc)
+        private async Task ReadHandler(int size, MessageHeader header, QueuedResponseChunk qrc)
         {
             Contract.Requires(size > 0);
             Contract.Requires(header != null);
@@ -612,13 +616,13 @@ namespace MS.SyncFrame
             while (remaining > 0)
             {
                 int toCopy = remaining;
-                if (toCopy > readBuffer.Length)
+                if (toCopy > this.readBuffer.Length)
                 {
-                    toCopy = readBuffer.Length;
+                    toCopy = this.readBuffer.Length;
                 }
 
-                await this.RemoteStream.ReadAsync(readBuffer, 0, toCopy);
-                await qrc.DataStream.WriteAsync(readBuffer, 0, toCopy);
+                await this.RemoteStream.ReadAsync(this.readBuffer, 0, toCopy, this.connectionClosedToken);
+                await qrc.DataStream.WriteAsync(this.readBuffer, 0, toCopy, this.connectionClosedToken);
                 remaining -= toCopy;
             }
 
@@ -642,7 +646,8 @@ namespace MS.SyncFrame
                         }
 
                         throw new ConnectionClosedException(Resources.ConnectionClosedDueToInternalError, this.faultingException);
-                    });
+                    },
+                    this.ConnectionClosedToken);
             }
             catch (Exception ex)
             {
