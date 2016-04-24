@@ -20,7 +20,7 @@ namespace MS.SyncFrame
     /// </summary>
     public class Result
     {
-        private static MethodInfo deserializeMethod = typeof(Serializer).GetMethods().Where((mi) => mi.Name == "DeserializeWithLengthPrefix").First();
+        private static MethodInfo deserializeMethod = typeof(Serializer).GetMethods().Where((mi) => mi.Name == "Deserialize").First();
         private MessageTransport localTransport;
         private int requestId;
         private bool remote;
@@ -37,7 +37,7 @@ namespace MS.SyncFrame
             if (header.Flags.HasFlag(HeaderFlags.Faulted))
             {
                 MethodInfo faultDeserializer = deserializeMethod.MakeGenericMethod(dataType);
-                object faultObject = faultDeserializer.Invoke(null, new object[] { s, PrefixStyle.Base128 });
+                object faultObject = faultDeserializer.Invoke(null, new object[] { s });
                 Type faultExceptionType = typeof(FaultException<>).MakeGenericType(dataType);
                 ConstructorInfo faultExceptionConstructor = faultExceptionType.GetConstructor(new Type[] { typeof(Result), dataType });
                 Exception faultEx = faultExceptionConstructor.Invoke(new object[] { this, faultObject }) as Exception;
@@ -118,7 +118,7 @@ namespace MS.SyncFrame
             return Task.Run(() => this.LocalTransport.SendFault(this, fault));
         }
 
-        internal void Write<T>(Stream s, T value, int typeId, HeaderFlags flags) where T : class
+        internal long Write<T>(Stream s, T value, int typeId, HeaderFlags flags) where T : class
         {
             Contract.Requires(s != null);
             Contract.Requires(value != null);
@@ -131,9 +131,11 @@ namespace MS.SyncFrame
             };
             
             Serializer.SerializeWithLengthPrefix(s, header, PrefixStyle.Base128);
-            long startData = s.Position;
-            Serializer.SerializeWithLengthPrefix(s, value, PrefixStyle.Base128);
+            long start = s.Position;
+            Serializer.Serialize(s, value);
+            long dataLength = s.Position - start;
             s.Position = 0;
+            return dataLength;
         }
     }
 }

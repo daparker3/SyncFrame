@@ -358,8 +358,6 @@ namespace MS.SyncFrame
 
             RequestResult requestResult = new RequestResult(this, request.RequestId);
             Type requestType = typeof(TRequest);
-            int typeId = this.requestBuffer.GetTypeId(requestType);
-            QueuedRequestChunk qrc = new QueuedRequestChunk(new MemoryStream(), typeId, requestType);
             QueuedRequestResponseChunk responseChunk = null;
             if (!request.Remote)
             {
@@ -378,7 +376,9 @@ namespace MS.SyncFrame
                 flags |= HeaderFlags.Response;
             }
 
-            requestResult.Write(qrc.DataStream, data, typeId, flags);
+            int typeId = this.requestBuffer.GetTypeId(requestType);
+            QueuedRequestChunk qrc = new QueuedRequestChunk(new MemoryStream(), typeId, requestType);
+            qrc.DataSize = requestResult.Write(qrc.DataStream, data, typeId, flags);
             this.requestBuffer.QueueRequest(qrc);
             return requestResult;
         }
@@ -508,7 +508,7 @@ namespace MS.SyncFrame
                             break;
                         }
 
-                        long toWrite = chunk.DataStream.Length;
+                        long toWrite = chunk.DataSize;
                         if (written + toWrite > max)
                         {
                             this.requestBuffer.RequeueRequest(chunk);
@@ -609,8 +609,6 @@ namespace MS.SyncFrame
             Contract.Requires(qrc != null);
             int remaining = size;
             qrc.Header = header;
-            qrc.DataStream.SetLength(size);
-            qrc.DataStream.Position = 0;
             while (remaining > 0)
             {
                 int toCopy = remaining;
@@ -633,16 +631,18 @@ namespace MS.SyncFrame
             Contract.Requires(qrc != null);
             try
             {
-                await Task.Factory.ContinueWhenAny(new Task[] { qrc.ResponseComplete(), this.faultingTaskTcs.Task }, (t) => { });
-                if (this.faultingTaskTcs.Task.IsCompleted)
-                {
-                    throw new ConnectionClosedException(Resources.ConnectionClosedDueToInternalError, this.faultingException);
-                }
-                else
-                {
-                    await qrc.ResponseComplete();
-                    return new TypedResult<TResponse>(this, typeof(TResponse), qrc.Header, qrc.DataStream);
-                }
+                Task responseCompleteTask = qrc.ResponseComplete();
+                return await Task.Factory.ContinueWhenAny(
+                    new Task[] { responseCompleteTask, this.faultingTaskTcs.Task },
+                    (t) => 
+                    {
+                        if (t == responseCompleteTask)
+                        {
+                            return new TypedResult<TResponse>(this, typeof(TResponse), qrc.Header, qrc.DataStream);
+                        }
+
+                        throw new ConnectionClosedException(Resources.ConnectionClosedDueToInternalError, this.faultingException);
+                    });
             }
             catch (Exception ex)
             {

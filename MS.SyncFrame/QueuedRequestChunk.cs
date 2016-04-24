@@ -25,5 +25,7 @@ namespace MS.SyncFrame
         internal int TypeId { get; set; }
 
         internal Type Type { get; set; }
+
+        internal long DataSize { get; set; }
     }
 }

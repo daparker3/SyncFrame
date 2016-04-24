@@ -104,16 +104,18 @@ namespace MS.SyncFrame
             try
             {
                 await base.Open();
-
                 while (this.IsConnectionOpen)
                 {
                     Task delayTask = Task.Delay(this.MinDelay, this.ConnectionClosedToken);
-                    await this.WriteMessages();
-                    await this.ReadMessages();
-                    DateTime gapStart = DateTime.Now;
-                    await delayTask;
-                    this.latencyGapMeasurementTcs.SetResult(DateTime.Now - gapStart);
-                    this.latencyGapMeasurementTcs = new TaskCompletionSource<TimeSpan>();
+                    await Task.Factory.ContinueWhenAll(
+                        new Task[] { this.WriteMessages(), this.ReadMessages() },
+                        async (t) =>
+                        {
+                            DateTime gapStart = DateTime.Now;
+                            await delayTask;
+                            this.latencyGapMeasurementTcs.SetResult(DateTime.Now - gapStart);
+                            this.latencyGapMeasurementTcs = new TaskCompletionSource<TimeSpan>();
+                        });
                 }
             }
             catch (Exception)

@@ -28,7 +28,7 @@ namespace MS.SyncFrame
             Contract.Requires(header != null);
             Contract.Requires(s != null);
             Contract.Ensures(this.result != null);
-            this.result = Serializer.DeserializeWithLengthPrefix<TResult>(s, PrefixStyle.Base128);
+            this.result = Serializer.Deserialize<TResult>(s);
         }
 
         internal TypedResult(MessageTransport localTransport, int requestId, TResult result)

@@ -75,11 +75,11 @@ namespace MS.SyncFrame
             try
             {
                 await base.Open();
-
                 while (this.IsConnectionOpen)
                 {
-                    await this.ReadMessages();
-                    await this.WriteMessages();
+                    await Task.Factory.ContinueWhenAll(
+                        new Task[] { this.ReadMessages(), this.WriteMessages() }, 
+                        (t) => { });
                 }
             }
             finally
