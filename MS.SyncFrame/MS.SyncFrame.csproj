@@ -81,6 +81,12 @@
     <Compile Include="QueuedResponseChunk.cs" />
     <Compile Include="RequestResult.cs" />
     <Compile Include="Result.cs" />
+    <Compile Include="ServiceProxy\DynamicMethodListFactory.cs" />
+    <Compile Include="ServiceProxy\NamespaceDoc.cs" />
+    <Compile Include="ServiceProxy\ProtoServiceContractAttribute.cs" />
+    <Compile Include="ServiceProxy\ProtoServiceMemberAttribute.cs" />
+    <Compile Include="ServiceProxy\ServiceClient.cs" />
+    <Compile Include="ServiceProxy\ServiceHost.cs" />
     <Compile Include="TaskResultExtensionMethods.cs" />
     <Compile Include="TypedResult.cs" />
     <Compile Include="WaitHandleExtensionMethods.cs" />

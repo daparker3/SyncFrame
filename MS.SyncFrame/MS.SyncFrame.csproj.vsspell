@@ -10,10 +10,13 @@
     <Ignore>cts</Ignore>
     <Ignore>Deserialize</Ignore>
     <Ignore>deserializing</Ignore>
-    <Ignore>tcs</Ignore>
     <Ignore>namespace</Ignore>
+    <Ignore>tcs</Ignore>
   </IgnoredWords>
   <InheritExclusionExpressions>True</InheritExclusionExpressions>
   <InheritIgnoredFilePatterns>True</InheritIgnoredFilePatterns>
   <InheritXmlSettings>True</InheritXmlSettings>
+  <IgnoredFilePatterns>
+    <FilePattern>protocontract</FilePattern>
+  </IgnoredFilePatterns>
 </SpellCheckerConfiguration>

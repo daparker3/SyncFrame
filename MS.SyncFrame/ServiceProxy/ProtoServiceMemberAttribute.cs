@@ -12,7 +12,7 @@ namespace MS.SyncFrame.ServiceProxy
     /// Represent protocol buffer service member attribute.
     /// </summary>
     /// <seealso cref="System.Attribute" />
-    [System.AttributeUsage(System.AttributeTargets.Method, Inherited = false, AllowMultiple = false)]
+    [System.AttributeUsage(System.AttributeTargets.Method, Inherited = true, AllowMultiple = false)]
     public sealed class ProtoServiceMemberAttribute : System.Attribute
     {
         private int methodId;
