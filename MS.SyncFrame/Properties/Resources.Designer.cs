@@ -115,6 +115,15 @@ namespace MS.SyncFrame.Properties {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Failed to create the dynamic bindings needed for this method..
+        /// </summary>
+        internal static string FailedToCreateDynamicMethodInfo {
+            get {
+                return ResourceManager.GetString("FailedToCreateDynamicMethodInfo", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to No such request..
         /// </summary>
         internal static string NoSuchRequest {

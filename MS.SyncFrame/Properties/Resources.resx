@@ -135,6 +135,9 @@
   <data name="ConnectionClosedDueToInternalError" xml:space="preserve">
     <value>The connection was closed due to an internal error.</value>
   </data>
+  <data name="FailedToCreateDynamicMethodInfo" xml:space="preserve">
+    <value>Failed to create the dynamic bindings needed for this method.</value>
+  </data>
   <data name="NoSuchRequest" xml:space="preserve">
     <value>No such request.</value>
   </data>
